@@ -1,0 +1,89 @@
+name: closer
+description: A daily question + mood check-in app for couples and friend groups.
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Firebase / FlutterFire — pinned to known-working versions
+  firebase_core: 3.4.0
+  firebase_auth: 5.2.0
+  cloud_firestore: 5.4.0
+  firebase_messaging: 15.1.0
+  firebase_database: 11.1.1
+
+  # Camera / Image
+  image_picker: ^1.1.2
+  file_picker: ^8.1.2          # Pick local audio files from device storage
+  firebase_storage: 12.2.0     # Upload audio files so partner can stream them
+
+  # State management
+  flutter_riverpod: ^2.5.1
+
+  # Routing
+  go_router: ^14.1.4
+
+  # Local notifications
+  flutter_local_notifications: ^17.1.2
+
+  # Timezone (required by flutter_local_notifications)
+  timezone: ^0.9.4
+  flutter_timezone: ^5.1.0
+
+  # Home screen widget
+  home_widget: ^0.9.3
+
+  # Utilities
+  http: ^1.2.1
+  intl: ^0.19.0
+  permission_handler: ^11.3.1
+  share_plus: ^10.0.0
+  shared_preferences: ^2.3.1
+  url_launcher: ^6.3.0
+
+  # Typography
+  google_fonts: ^6.2.1
+  animated_emoji: ^3.2.1
+  english_words: ^4.0.0
+  vibration: ^3.2.0
+
+  # Vibe Together — listen to music in sync
+  just_audio: ^0.9.39            # Audio playback engine
+  audio_service: ^0.18.18        # Background foreground service + lock screen controls
+
+  # Voice Calling — WebRTC peer-to-peer audio
+  flutter_webrtc: ^1.5.2         # WebRTC engine (audio-only P2P calls)
+  flutter_callkit_incoming: ^2.3.1  # Native incoming call screen (full-screen on lock screen)
+
+  # Watch Together — synced YouTube video watching
+  youtube_player_iframe: ^6.0.2   # Official YouTube IFrame API
+
+  # Monetization — interstitial ads only
+  google_mobile_ads: ^5.1.0       # AdMob interstitials at natural transition points
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+  flutter_svg: ^2.0.10
+  flutter_launcher_icons: ^0.13.1
+
+dependency_overrides:
+  web: ^1.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/dictionary.txt
+    - assets/
+
+flutter_launcher_icons:
+  android: "ic_launcher"
+  ios: false
+  image_path: "assets/icon/app_icon.jpg"
+  min_sdk_android: 23

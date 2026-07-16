@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Matches AppTheme.primary — keeps native splash seamless with Flutter splash -->
+    <color name="splash_bg">#E8647A</color>
+    <color name="white">#FFFFFF</color>
+</resources>
