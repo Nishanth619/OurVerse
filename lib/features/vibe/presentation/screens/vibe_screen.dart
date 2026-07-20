@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:audio_service/audio_service.dart' show MediaItem;
+import 'package:wakelock_plus/wakelock_plus.dart';
 import '../../data/vibe_models.dart';
 import '../../data/vibe_audio_handler.dart';
 import '../../providers/vibe_providers.dart';
@@ -37,6 +38,7 @@ class _VibeScreenState extends ConsumerState<VibeScreen>
 
   // Server time offset — corrects local clock vs Firebase server clock
   int _serverTimeOffsetMs = 0;
+  bool _serverOffsetReady = false;   // true once first offset value arrives
   StreamSubscription<int>? _offsetSub;
   StreamSubscription<VibeSession?>? _sessionSub;
   StreamSubscription<String>? _playbackErrorSub;
@@ -47,6 +49,7 @@ class _VibeScreenState extends ConsumerState<VibeScreen>
   String? _loadedVideoId;
   String? _loadingVideoId;
   String? _localFilePath; // local file path for local_sync mode (this device only)
+  int _lastLoadedAtMs = 0; // local time when last song finished loading
 
   // UI state
   bool _seeking = false;        // user is dragging seek bar
@@ -97,6 +100,7 @@ class _VibeScreenState extends ConsumerState<VibeScreen>
 
     _offsetSub = repo.watchServerTimeOffset().listen((offset) {
       _serverTimeOffsetMs = offset;
+      _serverOffsetReady = true; // offset confirmed from RTDB
     });
     _sessionSub = repo.watchSession(widget.spaceId).listen(_onSessionChanged);
     _reactionSub = repo.watchReactions(widget.spaceId).listen(_onReactionReceived);
@@ -144,6 +148,7 @@ class _VibeScreenState extends ConsumerState<VibeScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    WakelockPlus.disable();
     _offsetSub?.cancel();
     _sessionSub?.cancel();
     _playbackErrorSub?.cancel();
@@ -165,21 +170,29 @@ class _VibeScreenState extends ConsumerState<VibeScreen>
     if (isNewSong) {
       final success = await _loadSong(session);
       if (!mounted || _handler == null) return;
-
-      if (success && session.isPlaying && session.startPositionMs == 0) {
-        await ref.read(vibeRepositoryProvider).updatePlayState(
-              spaceId: widget.spaceId,
-              isPlaying: true,
-              currentPositionMs: 0,
-              deviceId: widget.deviceId,
-            );
-        return; // updated session re-triggers this listener with a fresh startedAt
+      if (!success) return;
+      // Record when we finished loading so drift correction
+      // won't trigger for the next 5 seconds (buffering guard).
+      _lastLoadedAtMs = DateTime.now().millisecondsSinceEpoch;
+      if (session.isPlaying) {
+        WakelockPlus.enable();
+        // Compute proper seek target using the server offset we have NOW
+        final targetPos = _serverOffsetReady
+            ? session.computePosition(_serverNow)
+            : Duration(milliseconds: session.startPositionMs);
+        await _handler!.seek(targetPos);
+        await _handler!.play();
+      } else {
+        WakelockPlus.disable();
       }
+      if (mounted) setState(() {});
+      return;
     }
 
     final targetPos = session.computePosition(_serverNow);
     try {
       if (session.isPlaying) {
+        WakelockPlus.enable();
         final currentPos = _handler!.position;
         final drift = (targetPos - currentPos).abs();
         if (drift > const Duration(milliseconds: 800)) {
@@ -187,6 +200,7 @@ class _VibeScreenState extends ConsumerState<VibeScreen>
         }
         await _handler!.play();
       } else {
+        WakelockPlus.disable();
         await _handler!.seek(targetPos);
         await _handler!.pause();
       }
@@ -264,26 +278,43 @@ class _VibeScreenState extends ConsumerState<VibeScreen>
     }
   }
 
-  // ── Drift correction ──────────────────────────────────────────────────────
+  // ── Drift correction ───────────────────────────────────────────────────
 
   Future<void> _correctDrift() async {
     if (_handler == null) return;
+
+    // GUARD 1: Only run once server offset is confirmed from RTDB.
+    // Without this, _serverNow = local time only, which may differ from
+    // server time significantly, causing computePosition() to return 0ms
+    // and the drift corrector to hard-seek back to start every 2 seconds.
+    if (!_serverOffsetReady) return;
+
     final session = ref.read(vibeSessionProvider(widget.spaceId)).value;
     if (session == null || !session.isPlaying) {
       await _handler!.setSpeed(1.0);
       return;
     }
-    
+
+    // GUARD 2: Skip drift correction for 8s after a song is loaded.
+    // Audio is still buffering — seeking during this window causes a restart loop.
+    final msSinceLoad = DateTime.now().millisecondsSinceEpoch - _lastLoadedAtMs;
+    if (_lastLoadedAtMs > 0 && msSinceLoad < 8000) return;
+
+    // GUARD 3: Skip drift correction for 8s after startedAt (server-side guard)
+    final timeSinceStart = _serverNow - session.startedAt;
+    if (timeSinceStart < 8000) return;
+
     final targetPos = session.computePosition(_serverNow);
     final currentPos = _handler!.position;
     final diff = targetPos - currentPos; // positive = we are behind target
     final driftMs = diff.inMilliseconds.abs();
 
-    if (driftMs > 1500) {
+    if (driftMs > 3500) {
       // Macro-drift: hard seek.
+      debugPrint('[VibeScreen] Hard seek drift=${driftMs}ms target=${targetPos.inSeconds}s');
       await _handler!.setSpeed(1.0);
       await _handler!.seek(targetPos);
-    } else if (driftMs > 50) {
+    } else if (driftMs > 100) {
       // Micro-drift: smooth speed correction.
       if (diff.isNegative) {
         // We are ahead of target (diff is negative), slow down
@@ -447,21 +478,21 @@ class _VibeScreenState extends ConsumerState<VibeScreen>
     final _partnerPresent = partnerPresentAsync.valueOrNull ?? false;
 
     return Scaffold(
-      backgroundColor: const Color(0xFF0F0F14),
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
-        backgroundColor: const Color(0xFF0F0F14),
+        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         elevation: 0,
-        iconTheme: const IconThemeData(color: Colors.white),
+        iconTheme: IconThemeData(color: Theme.of(context).colorScheme.onSurface),
         title: Text(
           'Vibe Together \u{1F3B5}',
           style: GoogleFonts.outfit(
-            color: Colors.white,
+            color: Theme.of(context).colorScheme.onSurface,
             fontWeight: FontWeight.w700,
           ),
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.history_rounded, color: Colors.white70),
+            icon: Icon(Icons.history_rounded, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7)),
             tooltip: 'Recently played',
             onPressed: () => Navigator.push(
               context,
@@ -472,7 +503,7 @@ class _VibeScreenState extends ConsumerState<VibeScreen>
           ),
           if (_currentSession != null)
             IconButton(
-              icon: const Icon(Icons.stop_circle_outlined, color: Colors.white70),
+              icon: Icon(Icons.stop_circle_outlined, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7)),
               tooltip: 'End Session',
               onPressed: () => ref.read(vibeRepositoryProvider).clearSession(widget.spaceId),
             ),
@@ -487,7 +518,7 @@ class _VibeScreenState extends ConsumerState<VibeScreen>
         ],
       ),
       body: (_handler == null || _sessionLoading)
-          ? const Center(
+          ? Center(
               child: CircularProgressIndicator(color: Color(0xFFB388FF)))
           : _currentSession == null
               ? _NoSessionView(
@@ -536,7 +567,7 @@ class _NoSessionView extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const SizedBox(height: 24),
+              SizedBox(height: 24),
               Container(
                 width: 120,
                 height: 120,
@@ -547,25 +578,25 @@ class _NoSessionView extends StatelessWidget {
                     Colors.transparent,
                   ]),
                 ),
-                child: const Icon(Icons.headphones_rounded,
+                child: Icon(Icons.headphones_rounded,
                     size: 56, color: Color(0xFFB388FF)),
               ),
-              const SizedBox(height: 24),
+              SizedBox(height: 24),
               Text(
                 'Nothing playing yet',
                 style: GoogleFonts.outfit(
-                  color: Colors.white,
+                  color: Theme.of(context).colorScheme.onSurface,
                   fontSize: 22,
                   fontWeight: FontWeight.w700,
                 ),
               ),
-              const SizedBox(height: 8),
+              SizedBox(height: 8),
               Text(
                 'Pick a song and listen together 🎶',
                 style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.5), fontSize: 15),
+                    color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5), fontSize: 15),
               ),
-              const SizedBox(height: 32),
+              SizedBox(height: 32),
               // Pick local song button — primary action
               GestureDetector(
                 onTap: onPickLocalSong,
@@ -580,9 +611,9 @@ class _NoSessionView extends StatelessWidget {
                   ),
                   child: Row(
                     children: [
-                      const Icon(Icons.audio_file_rounded,
+                      Icon(Icons.audio_file_rounded,
                           color: Color(0xFFB388FF)),
-                      const SizedBox(width: 12),
+                      SizedBox(width: 12),
                       Text(
                         'Pick a song to play together...',
                         style: GoogleFonts.outfit(
@@ -594,7 +625,7 @@ class _NoSessionView extends StatelessWidget {
                   ),
                 ),
               ),
-              const SizedBox(height: 24),
+              SizedBox(height: 24),
             ],
           ),
         ),
@@ -668,7 +699,7 @@ class _PlayerView extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(24, 0, 24, 32),
           child: Column(
             children: [
-              const SizedBox(height: 16),
+              SizedBox(height: 16),
 
               // ── Album art ──────────────────────────────────────────────
               Hero(
@@ -688,13 +719,13 @@ class _PlayerView extends StatelessWidget {
                 ),
               ),
 
-              const SizedBox(height: 24),
+              SizedBox(height: 24),
 
               // ── Title + source badge ──────────────────────────────────
               Text(
                 session.videoTitle,
                 style: GoogleFonts.outfit(
-                  color: Colors.white,
+                  color: Theme.of(context).colorScheme.onSurface,
                   fontWeight: FontWeight.w700,
                   fontSize: 20,
                 ),
@@ -702,7 +733,7 @@ class _PlayerView extends StatelessWidget {
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
               ),
-              const SizedBox(height: 6),
+              SizedBox(height: 6),
               // Source badge
               if (session.sourceType != 'youtube')
                 Container(
@@ -731,7 +762,7 @@ class _PlayerView extends StatelessWidget {
                             ? const Color(0xFF69F0AE)
                             : const Color(0xFFFFD740),
                       ),
-                      const SizedBox(width: 5),
+                      SizedBox(width: 5),
                       Text(
                         session.sourceType == 'local_upload'
                             ? 'Shared file — both streaming'
@@ -748,7 +779,7 @@ class _PlayerView extends StatelessWidget {
                   ),
                 ),
 
-              const SizedBox(height: 4),
+              SizedBox(height: 4),
 
               // local_sync banner — tells partner to open their own copy
               if (session.sourceType == 'local_sync')
@@ -766,13 +797,13 @@ class _PlayerView extends StatelessWidget {
                     ),
                     child: Row(
                       children: [
-                        const Icon(Icons.folder_open_rounded,
+                        Icon(Icons.folder_open_rounded,
                             color: Color(0xFFFFD740), size: 18),
-                        const SizedBox(width: 8),
+                        SizedBox(width: 8),
                         Expanded(
                           child: Text(
                             'Tap to open your own copy of this song',
-                            style: const TextStyle(
+                            style: TextStyle(
                                 color: Color(0xFFFFD740),
                                 fontSize: 12,
                                 fontWeight: FontWeight.w600),
@@ -783,11 +814,11 @@ class _PlayerView extends StatelessWidget {
                   ),
                 ),
 
-              const SizedBox(height: 8),
+              SizedBox(height: 8),
 
               if (loadError != null)
                 Text(loadError!,
-                    style: const TextStyle(
+                    style: TextStyle(
                         color: Color(0xFFFF6E6E), fontSize: 13))
               else if (isLoading)
                 const Padding(
@@ -800,14 +831,14 @@ class _PlayerView extends StatelessWidget {
                   ),
                 ),
 
-              const SizedBox(height: 16),
+              SizedBox(height: 16),
 
               // ── Seek bar ─────────────────────────────────────────────
               SliderTheme(
                 data: SliderThemeData(
                   activeTrackColor: const Color(0xFFB388FF),
-                  inactiveTrackColor: Colors.white12,
-                  thumbColor: Colors.white,
+                  inactiveTrackColor: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.12),
+                  thumbColor: Theme.of(context).colorScheme.onSurface,
                   overlayColor: const Color(0xFFB388FF).withValues(alpha: 0.2),
                   trackHeight: 4,
                 ),
@@ -828,16 +859,16 @@ class _PlayerView extends StatelessWidget {
                     Text(_fmtMs(seeking
                         ? (seekValue * dur).toInt()
                         : pos),
-                        style: const TextStyle(
-                            color: Colors.white60, fontSize: 12)),
+                        style: TextStyle(
+                            color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6), fontSize: 12)),
                     Text(_fmtMs(dur),
-                        style: const TextStyle(
-                            color: Colors.white60, fontSize: 12)),
+                        style: TextStyle(
+                            color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6), fontSize: 12)),
                   ],
                 ),
               ),
 
-              const SizedBox(height: 20),
+              SizedBox(height: 20),
 
               // ── Playback controls ────────────────────────────────────
               Row(
@@ -845,12 +876,12 @@ class _PlayerView extends StatelessWidget {
                 children: [
                   // Previous: change song
                   IconButton(
-                    icon: const Icon(Icons.skip_previous_rounded,
-                        size: 36, color: Colors.white70),
+                    icon: Icon(Icons.skip_previous_rounded,
+                        size: 36, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7)),
                     onPressed: onPickLocalSong,
                     tooltip: 'Change song',
                   ),
-                  const SizedBox(width: 16),
+                  SizedBox(width: 16),
 
                   // Play / Pause — big button
                   GestureDetector(
@@ -875,7 +906,7 @@ class _PlayerView extends StatelessWidget {
                         ],
                       ),
                       child: isLoading
-                          ? const Center(
+                          ? Center(
                               child: SizedBox(
                                 width: 28,
                                 height: 28,
@@ -894,7 +925,7 @@ class _PlayerView extends StatelessWidget {
                             ),
                     ),
                   ),
-                  const SizedBox(width: 16),
+                  SizedBox(width: 16),
 
                   // Next: play from queue or add
                   IconButton(
@@ -902,8 +933,8 @@ class _PlayerView extends StatelessWidget {
                       Icons.skip_next_rounded,
                       size: 36,
                       color: (queueLoaded && queue.isNotEmpty)
-                          ? Colors.white
-                          : Colors.white38,
+                          ? Theme.of(context).colorScheme.onSurface
+                          : Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.38),
                     ),
                     onPressed: (queueLoaded && queue.isNotEmpty) ? onPlayNext : null,
                     tooltip: 'Next in queue',
@@ -911,7 +942,7 @@ class _PlayerView extends StatelessWidget {
                 ],
               ),
 
-              const SizedBox(height: 28),
+              SizedBox(height: 28),
 
               // ── Reaction bar ─────────────────────────────────────────
               SizedBox(
@@ -919,7 +950,7 @@ class _PlayerView extends StatelessWidget {
                 child: ListView.separated(
                   scrollDirection: Axis.horizontal,
                   itemCount: reactionEmojis.length,
-                  separatorBuilder: (_, __) => const SizedBox(width: 8),
+                  separatorBuilder: (_, __) => SizedBox(width: 8),
                   itemBuilder: (_, i) {
                     final emoji = reactionEmojis[i];
                     return GestureDetector(
@@ -928,14 +959,14 @@ class _PlayerView extends StatelessWidget {
                         width: 44,
                         height: 44,
                         decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.06),
+                          color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.06),
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(
-                              color: Colors.white.withValues(alpha: 0.1)),
+                              color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.1)),
                         ),
                         child: Center(
                           child: Text(emoji,
-                              style: const TextStyle(fontSize: 22)),
+                              style: TextStyle(fontSize: 22)),
                         ),
                       ),
                     );
@@ -943,7 +974,7 @@ class _PlayerView extends StatelessWidget {
                 ),
               ),
 
-              const SizedBox(height: 28),
+              SizedBox(height: 28),
 
               // ── Queue ────────────────────────────────────────────────
               _QueueSection(
@@ -1014,14 +1045,14 @@ class _QueueSection extends StatelessWidget {
               Text(
                 'Up Next',
                 style: GoogleFonts.outfit(
-                  color: Colors.white,
+                  color: Theme.of(context).colorScheme.onSurface,
                   fontWeight: FontWeight.w700,
                   fontSize: 16,
                 ),
               ),
               TextButton.icon(
                 onPressed: onAddToQueue,
-                icon: const Icon(Icons.add_rounded,
+                icon: Icon(Icons.add_rounded,
                     color: Color(0xFFB388FF), size: 18),
                 label: const Text('Add',
                     style: TextStyle(
@@ -1035,7 +1066,7 @@ class _QueueSection extends StatelessWidget {
               child: Text(
                 'Queue is empty — add songs!',
                 style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.4),
+                    color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.4),
                     fontSize: 13),
               ),
             )
@@ -1055,17 +1086,17 @@ class _QueueSection extends StatelessWidget {
                             errorBuilder: (_, __, ___) => Container(
                                 width: 48,
                                 height: 36,
-                                color: Colors.white12,
-                                child: const Icon(Icons.music_note,
-                                    color: Colors.white54, size: 18)),
+                                color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.12),
+                                child: Icon(Icons.music_note,
+                                    color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.54), size: 18)),
                           ),
                         ),
-                        const SizedBox(width: 10),
+                        SizedBox(width: 10),
                         Expanded(
                           child: Text(
                             item.title,
-                            style: const TextStyle(
-                                color: Colors.white70, fontSize: 13),
+                            style: TextStyle(
+                                color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7), fontSize: 13),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
@@ -1133,7 +1164,7 @@ class _FloatingEmojiWidgetState extends State<_FloatingEmojiWidget>
           child: Transform.translate(
             offset: Offset(0, _offset.value),
             child: Text(widget.emoji,
-                style: const TextStyle(fontSize: 44)),
+                style: TextStyle(fontSize: 44)),
           ),
         ),
       ),

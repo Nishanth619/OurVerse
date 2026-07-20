@@ -13,9 +13,13 @@
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"
         android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <!-- Android 14+ photo picker granular permission -->
+    <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
     <!-- audio_service: background media playback -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <!-- Agora screen capture: required on Android 14+ -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- flutter_webrtc: voice calling -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
@@ -118,10 +122,11 @@
                 android:resource="@xml/closer_widget_info" />
         </receiver>
 
-        <!-- Firebase Cloud Messaging -->
+        <!-- Firebase Cloud Messaging: exported=true required on Android 14+ -->
         <service
             android:name="com.google.firebase.messaging.FirebaseMessagingService"
-            android:exported="false">
+            android:exported="true"
+            tools:replace="android:exported">
             <intent-filter>
                 <action android:name="com.google.firebase.MESSAGING_EVENT" />
             </intent-filter>

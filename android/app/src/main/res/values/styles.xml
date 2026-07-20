@@ -4,10 +4,12 @@
          our SplashScreen so there's no jarring white flash on cold start. -->
     <style name="LaunchTheme" parent="@android:style/Theme.Black.NoTitleBar">
         <item name="android:windowBackground">@drawable/launch_background</item>
-        <item name="android:windowFullscreen">false</item>
         <item name="android:windowContentOverlay">@null</item>
+        <item name="android:forceDarkAllowed">false</item>
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
     </style>
-
     <!-- NormalTheme: applied immediately after Flutter finishes init.
          Must be declared even if unused; Flutter reads it via meta-data. -->
     <style name="NormalTheme" parent="@android:style/Theme.Black.NoTitleBar">

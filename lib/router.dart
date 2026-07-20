@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'shared/providers/app_providers.dart';
 import 'features/onboarding/presentation/screens/splash_screen.dart';
+import 'features/onboarding/presentation/screens/onboarding_screen.dart';
 import 'features/onboarding/presentation/screens/welcome_screen.dart';
 import 'features/onboarding/presentation/screens/create_space_screen.dart';
 import 'features/onboarding/presentation/screens/join_space_screen.dart';
@@ -24,6 +25,7 @@ import 'features/question/presentation/screens/question_detail_screen.dart';
 import 'features/chat/presentation/screens/chat_screen.dart';
 import 'features/vibe/presentation/screens/vibe_screen.dart';
 import 'features/vibe/presentation/screens/youtube_sync_screen.dart';
+import 'features/stream/presentation/screens/stream_lobby_screen.dart';
 
 /// Bridges Riverpod [StateProvider] to a [Listenable] so GoRouter
 /// re-evaluates redirect() whenever the active space ID changes.
@@ -47,6 +49,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       final loc = state.matchedLocation;
 
       if (loc == '/splash') return null;
+      if (loc == '/onboarding') return null; // always allow onboarding
 
       // Has space → skip onboarding
       if (spaceId != null &&
@@ -72,6 +75,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/splash',
         builder: (context, state) => const SplashScreen(),
+      ),
+      GoRoute(
+        path: '/onboarding',
+        builder: (context, state) => const OnboardingScreen(),
       ),
       GoRoute(
         path: '/',
@@ -130,6 +137,10 @@ final routerProvider = Provider<GoRouter>((ref) {
             partnerId: partnerId,
           );
         },
+      ),
+      GoRoute(
+        path: '/stream',
+        builder: (context, state) => const StreamLobbyScreen(),
       ),
       GoRoute(
         path: '/games/wyr',

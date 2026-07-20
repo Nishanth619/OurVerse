@@ -77,6 +77,49 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
     await FlutterCallkitIncoming.showCallkitIncoming(params);
   } else if (type == 'end_call' && spaceId != null) {
     await FlutterCallkitIncoming.endAllCalls();
+  } else if (type == 'mood_ping') {
+    // Data-only FCM messages are silent — we must show the notification ourselves.
+    // This fires when the app is killed or backgrounded on Android 14+.
+    final emoji = data['emoji'] ?? '';
+    final title = data['title'] ?? 'Your partner updated their mood $emoji';
+    final body = data['body'] ?? 'Open OurVerse to see how they are feeling today 💞';
+
+    final plugin = FlutterLocalNotificationsPlugin();
+    const android = AndroidInitializationSettings('@mipmap/ic_launcher');
+    await plugin.initialize(const InitializationSettings(android: android));
+
+    // Ensure the channel exists in this background isolate too
+    final androidImpl = plugin
+        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+    await androidImpl?.createNotificationChannel(
+      AndroidNotificationChannel(
+        AppConstants.notifPingChannelId,
+        AppConstants.notifPingChannelName,
+        description: 'Instant ping when your partner updates their mood',
+        importance: Importance.high,
+        playSound: true,
+        vibrationPattern: Int64List.fromList([0, 250, 100, 250]),
+        enableVibration: true,
+      ),
+    );
+
+    await plugin.show(
+      AppConstants.moodPingNotifId,
+      title,
+      body,
+      NotificationDetails(
+        android: AndroidNotificationDetails(
+          AppConstants.notifPingChannelId,
+          AppConstants.notifPingChannelName,
+          importance: Importance.high,
+          priority: Priority.high,
+          icon: '@mipmap/ic_launcher',
+          vibrationPattern: Int64List.fromList([0, 250, 100, 250]),
+          enableVibration: true,
+          playSound: true,
+        ),
+      ),
+    );
   }
 }
 
@@ -95,7 +138,7 @@ class NotificationService {
     final localTz = (await FlutterTimezone.getLocalTimezone()).identifier;
     tz.setLocalLocation(tz.getLocation(localTz));
 
-    const android = AndroidInitializationSettings('@drawable/ic_launcher');
+    const android = AndroidInitializationSettings('@mipmap/ic_launcher');
     const settings = InitializationSettings(android: android);
     await _plugin.initialize(settings);
 
@@ -128,6 +171,18 @@ class NotificationService {
 
     // Register background handler
     FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+
+    // Handle mood_ping data messages when app is in FOREGROUND
+    // (background/killed is handled by _firebaseMessagingBackgroundHandler above)
+    FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
+      final type = message.data['type'];
+      if (type == 'mood_ping') {
+        final emoji = message.data['emoji'] ?? '';
+        final title = message.data['title'] ?? 'Your partner updated their mood $emoji';
+        final body = message.data['body'] ?? 'Open OurVerse to see how they are feeling today 💞';
+        await showMoodPing(emoji, title: title, body: body);
+      }
+    });
 
     _initialized = true;
   }
@@ -267,7 +322,7 @@ class NotificationService {
           AppConstants.notifChannelName,
           importance: Importance.defaultImportance,
           priority: Priority.defaultPriority,
-          icon: '@drawable/ic_launcher',
+          icon: '@mipmap/ic_launcher',
         ),
       ),
       androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
@@ -357,22 +412,22 @@ class NotificationService {
 
   /// Fires an immediate high-priority notification with vibration locally
   /// when the partner updates their mood emoji (if app is running/backgrounded).
-  static Future<void> showMoodPing(String emoji, {bool isBackground = false}) async {
+  static Future<void> showMoodPing(String emoji, {String? title, String? body}) async {
     if (!await isMoodPingsEnabled()) return;
 
     if (!_initialized) await init();
 
     await _plugin.show(
       AppConstants.moodPingNotifId,
-      'Your partner updated their mood $emoji',
-      'Open OurVerse to see how they are feeling today 💜',
+      title ?? 'Your partner updated their mood $emoji',
+      body ?? 'Open OurVerse to see how they are feeling today 💜',
       NotificationDetails(
         android: AndroidNotificationDetails(
           AppConstants.notifPingChannelId,
           AppConstants.notifPingChannelName,
           importance: Importance.high,
           priority: Priority.high,
-          icon: '@drawable/ic_launcher',
+          icon: '@mipmap/ic_launcher',
           vibrationPattern: Int64List.fromList([0, 250, 100, 250]),
           enableVibration: true,
           playSound: true,

@@ -5,12 +5,16 @@ import 'package:go_router/go_router.dart';
 import 'package:animated_emoji/animated_emoji.dart';
 import 'package:home_widget/home_widget.dart';
 import 'package:flutter/services.dart';
+import 'package:showcaseview/showcaseview.dart';
+import '../../../../core/services/onboarding_service.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/app_utils.dart';
 import '../../../../data/models/models.dart';
 import '../../../../data/services/home_widget_service.dart';
 import '../../../../data/services/notification_service.dart';
 import '../../../../shared/providers/app_providers.dart';
+import '../../../vibe/providers/vibe_providers.dart';
+import '../../../stream/providers/stream_providers.dart';
 
 const _hapticsChannel = MethodChannel('site.nexaaradhya.bondly/haptics');
 
@@ -28,6 +32,12 @@ class HomeScreen extends ConsumerStatefulWidget {
   ConsumerState<HomeScreen> createState() => _HomeScreenState();
 }
 
+// ── GlobalKeys for coach marks (created once at class level) ─────────────────
+final _keyMood       = GlobalKey();
+final _keyQuestion   = GlobalKey();
+final _keyStreak     = GlobalKey();
+final _keyStream     = GlobalKey();
+
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   StreamSubscription<Uri?>? _widgetClickedSub;
   // Holds manual listener subscriptions so they fire exactly ONCE per event,
@@ -41,11 +51,30 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     _widgetClickedSub = HomeWidget.widgetClicked.listen(_handleWidgetClick);
 
     // All side-effect listeners MUST live here, not inside build().
-    // Putting ref.listen in build() causes every rebuild to re-fire
-    // the callback — leading to duplicate SnackBars and duplicate notifications.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _registerListeners();
+      _maybeStartCoachMarks();
     });
+
+    ShowcaseView.register(
+      onFinish: () => OnboardingService.markCoachMarksDone(),
+      blurValue: 2,
+    );
+  }
+
+  Future<void> _maybeStartCoachMarks() async {
+    if (!mounted) return;
+    final done = await OnboardingService.isCoachMarksDone();
+    if (!mounted || done) return;
+    // Small delay so the home content is fully rendered before the spotlight starts
+    await Future.delayed(const Duration(milliseconds: 800));
+    if (!mounted) return;
+    ShowcaseView.get().startShowCase([
+      _keyMood,
+      _keyQuestion,
+      _keyStreak,
+      _keyStream,
+    ]);
   }
 
   void _registerListeners() {
@@ -229,6 +258,167 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         ),
       );
     }
+
+    // ── Watch Together: auto-navigate partner when a session starts ──────────
+    final watchSpaceId = ref.read(activeSpaceIdProvider);
+    final watchMyId = ref.read(deviceIdProvider).valueOrNull;
+    if (watchSpaceId != null && watchMyId != null) {
+      _listeners.add(
+        ref.listenManual<AsyncValue<dynamic>>(
+          ytSessionProvider(watchSpaceId),
+          (previous, next) {
+            final prevSession = previous?.valueOrNull;
+            final nextSession = next.valueOrNull;
+
+            // Fire only when a NEW session appears (wasn't there before)
+            // AND it was started by the partner (not us)
+            if (nextSession != null &&
+                prevSession == null &&
+                nextSession.startedBy != watchMyId) {
+              if (!mounted) return;
+
+              // Only auto-navigate if not already on the watch screen
+              final loc = GoRouterState.of(context).uri.toString();
+              if (loc.contains('youtube-sync')) return;
+
+              // Show a banner and auto-navigate after a short delay
+              ScaffoldMessenger.of(context).showMaterialBanner(
+                MaterialBanner(
+                  backgroundColor: const Color(0xFF1A0A2E),
+                  leading: const Text('🎬', style: TextStyle(fontSize: 28)),
+                  content: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Partner started Watch Together!',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 14,
+                        ),
+                      ),
+                      Text(
+                        nextSession.videoTitle.isNotEmpty
+                            ? nextSession.videoTitle
+                            : 'Tap to join',
+                        style: TextStyle(color: Colors.white60, fontSize: 12),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () {
+                        ScaffoldMessenger.of(context).hideCurrentMaterialBanner();
+                      },
+                      child: const Text('Dismiss',
+                          style: TextStyle(color: Colors.white38)),
+                    ),
+                    TextButton(
+                      onPressed: () {
+                        ScaffoldMessenger.of(context).hideCurrentMaterialBanner();
+                        context.push('/youtube-sync');
+                      },
+                      child: const Text('Join Now',
+                          style: TextStyle(
+                              color: Color(0xFFFF0000),
+                              fontWeight: FontWeight.bold)),
+                    ),
+                  ],
+                ),
+              );
+
+              // Also auto-navigate after 3 seconds if they don't tap
+              Future.delayed(const Duration(seconds: 3), () {
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).hideCurrentMaterialBanner();
+                final currentLoc = GoRouterState.of(context).uri.toString();
+                if (!currentLoc.contains('youtube-sync')) {
+                  context.push('/youtube-sync');
+                }
+              });
+            }
+          },
+        ),
+      );
+    }
+
+    // ── Screen Share: auto-navigate partner when host goes live ──────────────
+    final streamSpaceId = ref.read(activeSpaceIdProvider);
+    final streamMyId = ref.read(deviceIdProvider).valueOrNull;
+    if (streamSpaceId != null && streamMyId != null) {
+      _listeners.add(
+        ref.listenManual<AsyncValue<dynamic>>(
+          streamSessionProvider(streamSpaceId),
+          (previous, next) {
+            final prevSession = previous?.valueOrNull;
+            final nextSession = next.valueOrNull;
+
+            // Fire only when a NEW live session appears (host went live)
+            // AND it's the partner who started it (not us)
+            if (nextSession != null &&
+                nextSession.isLive == true &&
+                (prevSession == null || prevSession.isLive != true) &&
+                nextSession.hostId != streamMyId) {
+              if (!mounted) return;
+
+              // Don't navigate if already on the stream screen
+              final loc = GoRouterState.of(context).uri.toString();
+              if (loc.contains('stream')) return;
+
+              // Get space info to open the stream as viewer
+              final space = ref.read(spaceStreamProvider).valueOrNull;
+              if (space == null) return;
+
+              ScaffoldMessenger.of(context).showMaterialBanner(
+                MaterialBanner(
+                  backgroundColor: const Color(0xFF0D0D1A),
+                  leading: const Text('📺', style: TextStyle(fontSize: 28)),
+                  content: const Text(
+                    'Partner started a live stream!',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 14,
+                    ),
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () {
+                        ScaffoldMessenger.of(context).hideCurrentMaterialBanner();
+                      },
+                      child: const Text('Dismiss',
+                          style: TextStyle(color: Colors.white38)),
+                    ),
+                    TextButton(
+                      onPressed: () {
+                        ScaffoldMessenger.of(context).hideCurrentMaterialBanner();
+                        context.push('/stream');
+                      },
+                      child: const Text('Join Live',
+                          style: TextStyle(
+                              color: Colors.redAccent,
+                              fontWeight: FontWeight.bold)),
+                    ),
+                  ],
+                ),
+              );
+
+              // Auto-navigate after 5 seconds
+              Future.delayed(const Duration(seconds: 5), () {
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).hideCurrentMaterialBanner();
+                final currentLoc = GoRouterState.of(context).uri.toString();
+                if (!currentLoc.contains('stream')) {
+                  context.push('/stream');
+                }
+              });
+            }
+          },
+        ),
+      );
+    }
   }
 
   Future<void> _handleWidgetClick(Uri? uri) async {
@@ -255,6 +445,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     for (final sub in _listeners) {
       sub.close();
     }
+    try {
+      ShowcaseView.get().unregister();
+    } catch (_) {}
     super.dispose();
   }
 
@@ -265,10 +458,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final questionAsync = ref.watch(todayQuestionProvider);
     final answersAsync = ref.watch(todayAnswersProvider);
     final moodsAsync = ref.watch(todayMoodsProvider);
-
-    // NOTE: All side-effect listeners (SnackBars, notifications, widget updates)
-    // are registered ONCE in initState() via _registerListeners().
-    // DO NOT add ref.listen() calls here — it causes duplicate events on rebuild.
 
     return Scaffold(
       body: SafeArea(
@@ -299,7 +488,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
 // ─── Body ─────────────────────────────────────────────────────────────────────
 
-class _HomeBody extends StatelessWidget {
+class _HomeBody extends ConsumerWidget {
   final SpaceModel space;
   final String deviceId;
   final AsyncValue<QuestionModel?> questionAsync;
@@ -315,7 +504,7 @@ class _HomeBody extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return CustomScrollView(
       slivers: [
         SliverAppBar(
@@ -326,7 +515,18 @@ class _HomeBody extends StatelessWidget {
                 space.spaceName.isNotEmpty ? space.spaceName : 'OurVerse',
               ),
               const Spacer(),
-              _StreakBadge(streak: space.currentStreak),
+              Showcase(
+                key: _keyStreak,
+                title: '🔥 Your Streak',
+                description: 'Open the app every day together to keep\nyour streak alive. Don\'t break the chain!',
+                titleTextStyle: const TextStyle(
+                  color: Colors.white, fontWeight: FontWeight.w800, fontSize: 15),
+                descTextStyle: const TextStyle(
+                  color: Colors.white70, fontSize: 13, height: 1.5),
+                tooltipBackgroundColor: const Color(0xFF1A1A2E),
+                targetShapeBorder: const CircleBorder(),
+                child: _StreakBadge(streak: space.currentStreak),
+              ),
             ],
           ),
         ),
@@ -342,14 +542,24 @@ class _HomeBody extends StatelessWidget {
                   style: Theme.of(context).textTheme.titleLarge,
                 ),
                 const SizedBox(height: 12),
-                moodsAsync.when(
-                  loading: () => const _MoodRowSkeleton(),
-                  error: (_, __) => const SizedBox(),
-                  data: (moods) => _MoodRow(
-                    deviceId: deviceId,
-                    members: space.memberDeviceIds,
-                    moods: moods,
-                    spaceId: space.id,
+                Showcase(
+                  key: _keyMood,
+                  title: '😊 Mood Check-in',
+                  description: 'Tap an emoji to share how you\'re feeling.\nYour partner sees it instantly.',
+                  titleTextStyle: const TextStyle(
+                    color: Colors.white, fontWeight: FontWeight.w800, fontSize: 15),
+                  descTextStyle: const TextStyle(
+                    color: Colors.white70, fontSize: 13, height: 1.5),
+                  tooltipBackgroundColor: const Color(0xFF1A1A2E),
+                  child: moodsAsync.when(
+                    loading: () => const _MoodRowSkeleton(),
+                    error: (_, __) => const SizedBox(),
+                    data: (moods) => _MoodRow(
+                      deviceId: deviceId,
+                      members: space.memberDeviceIds,
+                      moods: moods,
+                      spaceId: space.id,
+                    ),
                   ),
                 ),
 
@@ -363,24 +573,98 @@ class _HomeBody extends StatelessWidget {
                       ),
                 ),
                 const SizedBox(height: 8),
-                questionAsync.when(
-                  loading: () => const _QuestionCardSkeleton(),
-                  error: (_, __) => const SizedBox(),
-                  data: (question) {
-                    if (question == null) return const SizedBox();
-                    return answersAsync.when(
-                      loading: () => const _QuestionCardSkeleton(),
-                      error: (_, __) => const SizedBox(),
-                      data: (answers) => _QuestionCard(
-                        questionText: question.text,
-                        hasAnswered: answers?.hasAnswered(deviceId) ?? false,
-                        revealed: answers?.revealed ?? false,
-                        answeredCount: answers?.answers.length ?? 0,
-                        totalCount: space.memberDeviceIds.length,
-                        onTap: () => context.push('/question'),
+                Showcase(
+                  key: _keyQuestion,
+                  title: '❓ Daily Question',
+                  description: 'A new question every single day.\nAnswer it — see each other\'s reply once both have answered.',
+                  titleTextStyle: const TextStyle(
+                    color: Colors.white, fontWeight: FontWeight.w800, fontSize: 15),
+                  descTextStyle: const TextStyle(
+                    color: Colors.white70, fontSize: 13, height: 1.5),
+                  tooltipBackgroundColor: const Color(0xFF1A1A2E),
+                  child: questionAsync.when(
+                    loading: () => const _QuestionCardSkeleton(),
+                    error: (e, __) => _QuestionErrorCard(onRetry: () => ref.invalidate(todayQuestionProvider)),
+                    data: (question) {
+                      if (question == null) return _QuestionErrorCard(onRetry: () => ref.invalidate(todayQuestionProvider));
+                      return answersAsync.when(
+                        loading: () => const _QuestionCardSkeleton(),
+                        error: (_, __) => const SizedBox(),
+                        data: (answers) => _QuestionCard(
+                          questionText: question.text,
+                          hasAnswered: answers?.hasAnswered(deviceId) ?? false,
+                          revealed: answers?.revealed ?? false,
+                          answeredCount: answers?.answers.length ?? 0,
+                          totalCount: space.memberDeviceIds.length,
+                          onTap: () => context.push('/question'),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 24),
+
+                // ── Stream Banner ─────────────────────────────────────────
+                Showcase(
+                  key: _keyStream,
+                  title: '📹 Go Live Together',
+                  description: 'Stream your camera or share your screen\nlive to your partner in real time.',
+                  titleTextStyle: const TextStyle(
+                    color: Colors.white, fontWeight: FontWeight.w800, fontSize: 15),
+                  descTextStyle: const TextStyle(
+                    color: Colors.white70, fontSize: 13, height: 1.5),
+                  tooltipBackgroundColor: const Color(0xFF1A1A2E),
+                  child: GestureDetector(
+                    onTap: () => context.push('/stream'),
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            AppTheme.primary.withValues(alpha: 0.85),
+                            AppTheme.accent.withValues(alpha: 0.85),
+                          ],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                        borderRadius: BorderRadius.circular(20),
                       ),
-                    );
-                  },
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.2),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: const Icon(Icons.live_tv, color: Colors.white, size: 24),
+                          ),
+                          const SizedBox(width: 14),
+                          const Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Go Live',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: 16,
+                                  ),
+                                ),
+                                Text(
+                                  'Stream your camera to your partner',
+                                  style: TextStyle(color: Colors.white70, fontSize: 12),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const Icon(Icons.chevron_right, color: Colors.white70),
+                        ],
+                      ),
+                    ),
+                  ),
                 ),
                 const SizedBox(height: 24),
               ],
@@ -868,3 +1152,50 @@ class _ErrorView extends StatelessWidget {
     );
   }
 }
+
+// ─── Question Error Card ───────────────────────────────────────────────────────
+
+class _QuestionErrorCard extends StatelessWidget {
+  final VoidCallback onRetry;
+  const _QuestionErrorCard({required this.onRetry});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+      decoration: BoxDecoration(
+        color: AppTheme.primary.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: AppTheme.primary.withValues(alpha: 0.2),
+        ),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text('🌐', style: TextStyle(fontSize: 32)),
+          const SizedBox(height: 12),
+          Text(
+            'Couldn\'t load today\'s question',
+            style: theme.textTheme.titleSmall?.copyWith(
+              color: AppTheme.onSurfaceMuted,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 12),
+          TextButton.icon(
+            onPressed: onRetry,
+            icon: const Icon(Icons.refresh_rounded, size: 16),
+            label: const Text('Retry'),
+            style: TextButton.styleFrom(
+              foregroundColor: AppTheme.primary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+

@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:http/http.dart' as http;
 import 'package:youtube_player_iframe/youtube_player_iframe.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 import '../../data/vibe_models.dart';
 import '../../data/vibe_repository.dart';
 import '../../providers/vibe_providers.dart';
@@ -76,11 +77,9 @@ class _YoutubeSyncScreenState extends ConsumerState<YoutubeSyncScreen>
   double _positionSec = 0;
   double _durationSec = 0;
   bool _isSeeking = false;
-  bool _playerReady = false;
 
   // Position polling timer
   Timer? _positionTimer;
-  Timer? _driftTimer;
 
   // ── Emoji reactions ──────────────────────────────────────────────────────────
   final List<_FloatingEmoji> _floatingEmojis = [];
@@ -134,22 +133,32 @@ class _YoutubeSyncScreenState extends ConsumerState<YoutubeSyncScreen>
 
   // ── Remote session handler (RTDB → player) ──────────────────────────────────
 
+  bool _handledInitialSession = false;
+
   Future<void> _onRemoteSession(YtSyncSession? session) async {
     if (session == null || !mounted) return;
-    if (session.startedBy == widget.deviceId) return; // own event, skip
+
+    // On first load, BOTH partners (including the one who started the session)
+    // should load the video. After the first load we skip our own events to
+    // avoid feedback loops from our own play/pause broadcasts.
+    final isOwnEvent = session.startedBy == widget.deviceId;
+    if (isOwnEvent && _handledInitialSession) return;
+    _handledInitialSession = true;
 
     _suppressBroadcast = true;
 
     try {
-      // If video changed → load new video first
+      // If video changed → load new video
       if (session.videoId != _loadedVideoId) {
-        _loadedVideoId = session.videoId;
         if (mounted) {
           setState(() {
+            _loadedVideoId = session.videoId;
             _currentTitle = session.videoTitle;
             _loadingVideo = true;
           });
         }
+
+        // Load the video directly into the controller
         await _ytController.loadVideoById(videoId: session.videoId);
         // Give the WebView time to start buffering
         await Future.delayed(const Duration(milliseconds: 1800));
@@ -160,12 +169,13 @@ class _YoutubeSyncScreenState extends ConsumerState<YoutubeSyncScreen>
       final targetPos = session.computePosition(_serverNow);
       final targetSec = targetPos.inMilliseconds / 1000.0;
 
-      await _ytController.seekTo(
-          seconds: targetSec, allowSeekAhead: true);
+      await _ytController.seekTo(seconds: targetSec, allowSeekAhead: true);
 
       if (session.isPlaying) {
+        WakelockPlus.enable();
         await _ytController.playVideo();
       } else {
+        WakelockPlus.disable();
         await _ytController.pauseVideo();
       }
 
@@ -176,7 +186,9 @@ class _YoutubeSyncScreenState extends ConsumerState<YoutubeSyncScreen>
           if (!_isSeeking) _positionSec = targetSec;
         });
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[YtSync] _onRemoteSession error: $e');
+    }
 
     // Allow a window before re-enabling local event broadcasting
     await Future.delayed(const Duration(milliseconds: 600));
@@ -196,6 +208,14 @@ class _YoutubeSyncScreenState extends ConsumerState<YoutubeSyncScreen>
     // Only broadcast on actual state TRANSITIONS to avoid spamming RTDB
     if (state == _lastBroadcastedState) return;
     if (state != PlayerState.playing && state != PlayerState.paused) return;
+
+    if (state == PlayerState.playing || state == PlayerState.paused) {
+      if (state == PlayerState.playing) {
+        WakelockPlus.enable();
+      } else {
+        WakelockPlus.disable();
+      }
+    }
 
     _lastBroadcastedState = state;
 
@@ -269,6 +289,7 @@ class _YoutubeSyncScreenState extends ConsumerState<YoutubeSyncScreen>
     _loadedVideoId = videoId;
     _suppressBroadcast = true;
     _ytController.loadVideoById(videoId: videoId);
+    WakelockPlus.enable();
 
     // Write session to RTDB so partner's player also loads
     try {
@@ -300,7 +321,7 @@ class _YoutubeSyncScreenState extends ConsumerState<YoutubeSyncScreen>
   }
 
   Future<void> _togglePlayPause() async {
-    if (!_playerReady || _loadedVideoId.isEmpty) return;
+    if (_loadedVideoId.isEmpty) return;
     final willPlay = !_isPlaying;
     final posMs = (_positionSec * 1000).round();
 
@@ -308,8 +329,10 @@ class _YoutubeSyncScreenState extends ConsumerState<YoutubeSyncScreen>
 
     _suppressBroadcast = true;
     if (willPlay) {
+      WakelockPlus.enable();
       await _ytController.playVideo();
     } else {
+      WakelockPlus.disable();
       await _ytController.pauseVideo();
     }
 
@@ -393,9 +416,14 @@ class _YoutubeSyncScreenState extends ConsumerState<YoutubeSyncScreen>
     _sessionSub?.cancel();
     _reactionSub?.cancel();
     _positionTimer?.cancel();
-    _driftTimer?.cancel();
     _ytController.close();
     _urlController.dispose();
+    WakelockPlus.disable(); // Ensure wakelock is released
+    // If we were the host (loaded a video), clear the session from RTDB
+    // so the partner's auto-navigation listener doesn't re-fire on reconnect.
+    if (_loadedVideoId.isNotEmpty) {
+      _repo.clearYtSession(widget.spaceId).catchError((_) {});
+    }
     super.dispose();
   }
 
@@ -407,19 +435,19 @@ class _YoutubeSyncScreenState extends ConsumerState<YoutubeSyncScreen>
     final videoHeight = size.width * 9 / 16;
 
     return Scaffold(
-      backgroundColor: const Color(0xFF0D0D0D),
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded,
-              color: Colors.white70, size: 20),
+          icon: Icon(Icons.arrow_back_ios_new_rounded,
+              color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7), size: 20),
           onPressed: () => Navigator.of(context).pop(),
         ),
         title: Text(
           'Watch Together',
           style: GoogleFonts.inter(
-            color: Colors.white,
+            color: Theme.of(context).colorScheme.onSurface,
             fontWeight: FontWeight.w700,
             fontSize: 18,
           ),
@@ -440,11 +468,11 @@ class _YoutubeSyncScreenState extends ConsumerState<YoutubeSyncScreen>
                         : Colors.grey,
                   ),
                 ),
-                const SizedBox(width: 6),
+                SizedBox(width: 6),
                 Text(
                   _loadedVideoId.isNotEmpty ? 'In Sync' : 'No video',
                   style: GoogleFonts.inter(
-                    color: Colors.white54,
+                    color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.54),
                     fontSize: 12,
                     fontWeight: FontWeight.w500,
                   ),
@@ -471,7 +499,6 @@ class _YoutubeSyncScreenState extends ConsumerState<YoutubeSyncScreen>
                   hasVideo: _loadedVideoId.isNotEmpty,
                   onReady: () {
                     if (mounted) {
-                      setState(() => _playerReady = true);
                       _startPositionTimer();
                     }
                   },
@@ -484,7 +511,7 @@ class _YoutubeSyncScreenState extends ConsumerState<YoutubeSyncScreen>
                     child: Text(
                       _currentTitle,
                       style: GoogleFonts.inter(
-                        color: Colors.white,
+                        color: Theme.of(context).colorScheme.onSurface,
                         fontSize: 15,
                         fontWeight: FontWeight.w600,
                       ),
@@ -505,9 +532,9 @@ class _YoutubeSyncScreenState extends ConsumerState<YoutubeSyncScreen>
                         overlayShape:
                             const RoundSliderOverlayShape(overlayRadius: 14),
                         activeTrackColor: const Color(0xFFFF0000),
-                        inactiveTrackColor: Colors.white12,
-                        thumbColor: Colors.white,
-                        overlayColor: Colors.white12,
+                        inactiveTrackColor: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.12),
+                        thumbColor: Theme.of(context).colorScheme.onSurface,
+                        overlayColor: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.12),
                       ),
                       child: Slider(
                         value: _durationSec > 0
@@ -530,12 +557,12 @@ class _YoutubeSyncScreenState extends ConsumerState<YoutubeSyncScreen>
                         Text(
                           _formatDuration(_positionSec),
                           style: GoogleFonts.inter(
-                              color: Colors.white54, fontSize: 11),
+                              color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.54), fontSize: 11),
                         ),
                         Text(
                           _formatDuration(_durationSec),
                           style: GoogleFonts.inter(
-                              color: Colors.white54, fontSize: 11),
+                              color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.54), fontSize: 11),
                         ),
                       ],
                     ),
@@ -544,7 +571,7 @@ class _YoutubeSyncScreenState extends ConsumerState<YoutubeSyncScreen>
 
                 // ── Play/Pause button ─────────────────────────────────────────
                 if (_loadedVideoId.isNotEmpty) ...[
-                  const SizedBox(height: 8),
+                  SizedBox(height: 8),
                   Center(
                     child: GestureDetector(
                       onTap: _togglePlayPause,
@@ -570,7 +597,7 @@ class _YoutubeSyncScreenState extends ConsumerState<YoutubeSyncScreen>
                   ),
                 ],
 
-                const SizedBox(height: 24),
+                SizedBox(height: 24),
 
                 // ── URL input ─────────────────────────────────────────────────
                 Padding(
@@ -583,38 +610,38 @@ class _YoutubeSyncScreenState extends ConsumerState<YoutubeSyncScreen>
                             ? 'Paste a YouTube link to watch together'
                             : 'Load a different video',
                         style: GoogleFonts.inter(
-                          color: Colors.white70,
+                          color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7),
                           fontSize: 13,
                           fontWeight: FontWeight.w500,
                         ),
                       ),
-                      const SizedBox(height: 10),
+                      SizedBox(height: 10),
                       Row(
                         children: [
                           Expanded(
                             child: TextField(
                               controller: _urlController,
                               style: GoogleFonts.inter(
-                                  color: Colors.white, fontSize: 14),
+                                  color: Theme.of(context).colorScheme.onSurface, fontSize: 14),
                               decoration: InputDecoration(
                                 hintText: 'https://youtube.com/watch?v=...',
                                 hintStyle: GoogleFonts.inter(
-                                    color: Colors.white30, fontSize: 13),
+                                    color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.3), fontSize: 13),
                                 filled: true,
-                                fillColor: Colors.white.withValues(alpha: 0.07),
+                                fillColor: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.07),
                                 border: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(14),
                                   borderSide: BorderSide.none,
                                 ),
                                 contentPadding: const EdgeInsets.symmetric(
                                     horizontal: 16, vertical: 14),
-                                prefixIcon: const Icon(Icons.link_rounded,
-                                    color: Colors.white38, size: 20),
+                                prefixIcon: Icon(Icons.link_rounded,
+                                    color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.38), size: 20),
                               ),
                               onSubmitted: (_) => _loadVideoFromUrl(),
                             ),
                           ),
-                          const SizedBox(width: 10),
+                          SizedBox(width: 10),
                           GestureDetector(
                             onTap: _loadingVideo ? null : _loadVideoFromUrl,
                             child: AnimatedContainer(
@@ -622,27 +649,27 @@ class _YoutubeSyncScreenState extends ConsumerState<YoutubeSyncScreen>
                               padding: const EdgeInsets.all(14),
                               decoration: BoxDecoration(
                                 color: _loadingVideo
-                                    ? Colors.white12
+                                    ? Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.12)
                                     : const Color(0xFFFF0000),
                                 borderRadius: BorderRadius.circular(14),
                               ),
                               child: _loadingVideo
-                                  ? const SizedBox(
+                                  ? SizedBox(
                                       width: 20,
                                       height: 20,
                                       child: CircularProgressIndicator(
                                         strokeWidth: 2,
-                                        color: Colors.white,
+                                        color: Theme.of(context).colorScheme.onSurface,
                                       ),
                                     )
-                                  : const Icon(Icons.play_circle_outline_rounded,
+                                  : Icon(Icons.play_circle_outline_rounded,
                                       color: Colors.white, size: 22),
                             ),
                           ),
                         ],
                       ),
                       if (_loadError != null) ...[
-                        const SizedBox(height: 8),
+                        SizedBox(height: 8),
                         Text(
                           _loadError!,
                           style: GoogleFonts.inter(
@@ -653,7 +680,7 @@ class _YoutubeSyncScreenState extends ConsumerState<YoutubeSyncScreen>
                   ),
                 ),
 
-                const SizedBox(height: 24),
+                SizedBox(height: 24),
 
                 // ── Emoji reactions ───────────────────────────────────────────
                 Padding(
@@ -664,13 +691,13 @@ class _YoutubeSyncScreenState extends ConsumerState<YoutubeSyncScreen>
                       Text(
                         'React together',
                         style: GoogleFonts.inter(
-                          color: Colors.white54,
+                          color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.54),
                           fontSize: 12,
                           fontWeight: FontWeight.w500,
                           letterSpacing: 0.6,
                         ),
                       ),
-                      const SizedBox(height: 10),
+                      SizedBox(height: 10),
                       Wrap(
                         spacing: 10,
                         runSpacing: 10,
@@ -680,13 +707,13 @@ class _YoutubeSyncScreenState extends ConsumerState<YoutubeSyncScreen>
                             child: Container(
                               padding: const EdgeInsets.all(10),
                               decoration: BoxDecoration(
-                                color: Colors.white.withValues(alpha: 0.07),
+                                color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.07),
                                 borderRadius: BorderRadius.circular(14),
                                 border: Border.all(
-                                    color: Colors.white12, width: 1),
+                                    color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.12), width: 1),
                               ),
                               child: Text(emoji,
-                                  style: const TextStyle(fontSize: 24)),
+                                  style: TextStyle(fontSize: 24)),
                             ),
                           );
                         }).toList(),
@@ -695,7 +722,7 @@ class _YoutubeSyncScreenState extends ConsumerState<YoutubeSyncScreen>
                   ),
                 ),
 
-                const SizedBox(height: 40),
+                SizedBox(height: 40),
               ],
             ),
           ),
@@ -751,43 +778,51 @@ class _PlayerBox extends StatelessWidget {
     return Container(
       width: width,
       height: videoHeight,
-      color: Colors.black,
+      color: Theme.of(context).scaffoldBackgroundColor,
       child: Stack(
         alignment: Alignment.center,
         children: [
-          // Placeholder when no video
-          if (!hasVideo)
-            Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(Icons.smart_display_outlined,
-                    color: Colors.white24, size: 64),
-                const SizedBox(height: 12),
-                Text(
-                  'Paste a YouTube link below\nto start watching together',
-                  textAlign: TextAlign.center,
-                  style: GoogleFonts.inter(
-                      color: Colors.white38, fontSize: 14, height: 1.5),
-                ),
-              ],
+          // YouTube player — always mounted so the controller has a WebView.
+          // The placeholder is shown as an overlay on top when no video is loaded.
+          YoutubePlayerControllerProvider(
+            controller: controller,
+            child: SizedBox(
+              width: width,
+              height: videoHeight,
+              child: YoutubePlayer(
+                controller: controller,
+                aspectRatio: width / videoHeight,
+              ),
             ),
+          ),
 
-          // YouTube player (always mounted so controller works)
-          if (hasVideo)
-            YoutubePlayerControllerProvider(
-              controller: controller,
-              child: SizedBox(
-                width: width,
-                height: videoHeight,
-                child: YoutubePlayer(controller: controller),
+          // Placeholder overlay when no video yet
+          if (!hasVideo)
+            Container(
+              width: width,
+              height: videoHeight,
+              color: Theme.of(context).scaffoldBackgroundColor,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.smart_display_outlined,
+                      color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.24), size: 64),
+                  SizedBox(height: 12),
+                  Text(
+                    'Paste a YouTube link below\nto start watching together',
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.inter(
+                        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.38), fontSize: 14, height: 1.5),
+                  ),
+                ],
               ),
             ),
 
           // Loading overlay
           if (isLoading)
             Container(
-              color: Colors.black54,
-              child: const Center(
+              color: Theme.of(context).scaffoldBackgroundColor.withValues(alpha: 0.54),
+              child: Center(
                 child: CircularProgressIndicator(
                   color: Color(0xFFFF0000),
                   strokeWidth: 2.5,
@@ -858,7 +893,7 @@ class _FloatingEmojiWidgetState extends State<_FloatingEmojiWidget>
         top: widget.startY * size.height + _slide.value,
         child: Opacity(
           opacity: _opacity.value,
-          child: Text(widget.emoji, style: const TextStyle(fontSize: 36)),
+          child: Text(widget.emoji, style: TextStyle(fontSize: 36)),
         ),
       ),
     );

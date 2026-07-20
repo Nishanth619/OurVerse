@@ -104,7 +104,15 @@ class _WelcomeScreenState extends State<WelcomeScreen>
                       opacity: _heroOpacity,
                       child: SlideTransition(
                         position: _heroSlide,
-                        child: const Text('💞', style: TextStyle(fontSize: 80)),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(28),
+                          child: Image.asset(
+                            'assets/icon/app_icon.jpg',
+                            width: 110,
+                            height: 110,
+                            fit: BoxFit.cover,
+                          ),
+                        ),
                       ),
                     ),
                     const SizedBox(height: 24),
@@ -139,24 +147,6 @@ class _WelcomeScreenState extends State<WelcomeScreen>
 
                     const Spacer(flex: 3),
 
-                    // Feature chips
-                    FadeTransition(
-                      opacity: _chipsOpacity,
-                      child: const Wrap(
-                        alignment: WrapAlignment.center,
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          _FeatureChip(emoji: '❓', label: 'Daily question'),
-                          _FeatureChip(emoji: '😊', label: 'Mood check-in'),
-                          _FeatureChip(emoji: '🔥', label: 'Streak counter'),
-                          _FeatureChip(emoji: '🎮', label: 'Mini games'),
-                        ],
-                      ),
-                    ),
-
-                    const Spacer(flex: 2),
-
                     // CTA Buttons
                     FadeTransition(
                       opacity: _buttonsOpacity,
@@ -172,12 +162,6 @@ class _WelcomeScreenState extends State<WelcomeScreen>
                             OutlinedButton(
                               onPressed: () => context.push('/join'),
                               child: const Text('Join with a code'),
-                            ),
-                            const SizedBox(height: 16),
-                            Text(
-                              'No account needed. No ads. Always free.',
-                              style: theme.textTheme.bodyMedium,
-                              textAlign: TextAlign.center,
                             ),
                             const SizedBox(height: 20),
                             const _LegalLinks(),
@@ -196,32 +180,8 @@ class _WelcomeScreenState extends State<WelcomeScreen>
   }
 }
 
-class _FeatureChip extends StatelessWidget {
-  final String emoji;
-  final String label;
+// Removed FeatureChip since it is no longer used
 
-  const _FeatureChip({required this.emoji, required this.label});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-      decoration: BoxDecoration(
-        color: AppTheme.surfaceAlt,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppTheme.divider, width: 1.5),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(emoji, style: const TextStyle(fontSize: 16)),
-          const SizedBox(width: 6),
-          Text(label, style: Theme.of(context).textTheme.bodyMedium),
-        ],
-      ),
-    );
-  }
-}
 
 /// Privacy Policy and Terms of Service links shown in the welcome screen footer.
 class _LegalLinks extends StatelessWidget {

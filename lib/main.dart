@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'core/theme/app_theme.dart';
 import 'core/utils/app_utils.dart';
 import 'data/services/notification_service.dart';
@@ -18,7 +19,9 @@ import 'core/ads/ad_service.dart';
 
 void main() async {
   debugPrint('🚀 [STARTUP] main() called');
-  WidgetsFlutterBinding.ensureInitialized();
+  final widgetsBinding = WidgetsFlutterBinding.ensureInitialized();
+  // Keep the native (black) splash visible until our video splash is ready.
+  FlutterNativeSplash.preserve(widgetsBinding: widgetsBinding);
   debugPrint('🚀 [STARTUP] WidgetsFlutterBinding initialized');
 
   // ── Performance tuning ────────────────────────────────────────────────────

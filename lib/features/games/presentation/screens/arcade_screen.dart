@@ -89,7 +89,7 @@ class _ArcadeScreenState extends ConsumerState<ArcadeScreen> {
                   crossAxisCount: 2,
                   crossAxisSpacing: 16,
                   mainAxisSpacing: 16,
-                  childAspectRatio: 0.85,
+                  childAspectRatio: 0.80,
                 ),
                 delegate: SliverChildListDelegate([
                   // —— Word Hunt Card ——

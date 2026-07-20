@@ -66,6 +66,15 @@ dependencies:
   # Monetization — interstitial ads only
   google_mobile_ads: ^5.1.0       # AdMob interstitials at natural transition points
 
+  # Splash screen video
+  video_player: ^2.9.1
+
+  # Keep native splash visible until video is ready (no black gap)
+  flutter_native_splash: ^2.4.1
+  agora_rtc_engine: ^6.5.3
+  wakelock_plus: ^1.2.10          # Prevents screen sleep during stream viewing/sharing
+  showcaseview: 5.1.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -81,9 +90,17 @@ flutter:
   assets:
     - assets/dictionary.txt
     - assets/
+    - assets/images/
+    - assets/splash_video.mp4
 
 flutter_launcher_icons:
   android: "ic_launcher"
   ios: false
   image_path: "assets/icon/app_icon.jpg"
   min_sdk_android: 23
+
+flutter_native_splash:
+  color: "#000000"
+  android: true
+  ios: false
+  fullscreen: true

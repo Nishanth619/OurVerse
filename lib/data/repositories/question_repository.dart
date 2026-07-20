@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/utils/app_utils.dart';
 import '../../core/utils/isolate_parser.dart';
@@ -22,23 +23,33 @@ class QuestionRepository {
         .collection(AppConstants.dailyAnswersCollection)
         .doc(today);
 
-    final answerSnap = await answerRef.get();
+    try {
+      final answerSnap = await answerRef.get();
 
-    String questionId;
-    if (answerSnap.exists) {
-      questionId = (answerSnap.data() as Map<String, dynamic>)['questionId'];
-    } else {
-      // Pick and assign a question
+      String? questionId;
+      if (answerSnap.exists) {
+        final data = answerSnap.data();
+        questionId = data?['questionId'] as String?;
+      }
+
+      if (questionId != null && questionId.isNotEmpty) {
+        return _getQuestionById(questionId);
+      }
+
+      // No question assigned yet — pick one and store it
       final question = await _pickQuestion(spaceId);
       await answerRef.set({
         'questionId': question.id,
         'answers': {},
         'revealed': false,
-      });
+      }, SetOptions(merge: true));
       return question;
+    } catch (e) {
+      // Network or permission error — return a local fallback so the card
+      // still shows rather than hiding entirely.
+      debugPrint('getTodayQuestion error: $e');
+      return QuestionModel.fallbackQuestions.first;
     }
-
-    return _getQuestionById(questionId);
   }
 
   Future<QuestionModel> _pickQuestion(String spaceId) async {
@@ -80,6 +91,8 @@ class QuestionRepository {
   }
 
   Future<QuestionModel> _getQuestionById(String id) async {
+    if (id.isEmpty) return QuestionModel.fallbackQuestions.first;
+
     // Try Firestore first
     try {
       final snap = await _db
