@@ -6,6 +6,7 @@ import '../../../vibe/presentation/widgets/sync_status_chip.dart';
 import '../../data/bingo_model.dart';
 import '../../data/bingo_repository.dart';
 import '../../../../core/ads/ad_service.dart';
+import '../../../../core/services/daily_limits_service.dart';
 
 // ─── Colours ─────────────────────────────────────────────────────────────────
 
@@ -52,6 +53,8 @@ class _BingoScreenState extends ConsumerState<BingoScreen>
     super.initState();
     _presenceRepo = ref.read(presenceRepositoryProvider);
     _presenceRepo.setPresent(widget.spaceId, 'bingo', widget.deviceId);
+    // Consume the play now — the user is actually IN the game.
+    DailyLimitsService.consumeGamePlay('bingo');
 
     _pulseCtrl = AnimationController(
       vsync: this,

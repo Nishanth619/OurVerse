@@ -8,6 +8,7 @@ import '../../data/uno_engine.dart';
 import '../../data/uno_model.dart';
 import '../../data/uno_repository.dart';
 import '../../../../core/ads/ad_service.dart';
+import '../../../../core/services/daily_limits_service.dart';
 
 // ─── Color Palette ────────────────────────────────────────────────────────────
 
@@ -78,6 +79,8 @@ class _UnoScreenState extends ConsumerState<UnoScreen>
     super.initState();
     _presenceRepo = ref.read(presenceRepositoryProvider);
     _presenceRepo.setPresent(widget.spaceId, 'uno', _myId);
+    // Consume the play now — the user is actually IN the game.
+    DailyLimitsService.consumeGamePlay('uno');
 
     _discardAnim = AnimationController(
       vsync: this,

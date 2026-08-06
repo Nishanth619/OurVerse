@@ -12,6 +12,7 @@ import '../widgets/snakes_ladders_board_painter.dart';
 import '../../../../shared/providers/app_providers.dart';
 import '../../../vibe/presentation/widgets/sync_status_chip.dart';
 import '../../../../core/ads/ad_service.dart';
+import '../../../../core/services/daily_limits_service.dart';
 
 const List<String> _diceFaces = ['⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
 
@@ -61,8 +62,10 @@ class _SnakesLaddersScreenState extends ConsumerState<SnakesLaddersScreen>
   @override
   void initState() {
     super.initState();
-        _presenceRepo = ref.read(presenceRepositoryProvider);
+    _presenceRepo = ref.read(presenceRepositoryProvider);
     _presenceRepo.setPresent(widget.spaceId, 'snakes_ladders', widget.deviceId);
+    // Consume the play now — the user is actually IN the game.
+    DailyLimitsService.consumeGamePlay('snakesladders');
   }
 
   @override

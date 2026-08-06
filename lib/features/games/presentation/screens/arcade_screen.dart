@@ -54,8 +54,10 @@ class _ArcadeScreenState extends ConsumerState<ArcadeScreen> {
   }
 
   Future<void> _navigateTo(String gameId, String route, String gameTitle) async {
-    final hasPlays = await DailyLimitsService.consumeGamePlay(gameId);
-    if (!hasPlays && mounted) {
+    // Only CHECK remaining plays here — do not consume yet.
+    // The play is consumed inside the game screen's initState (when the game actually starts).
+    final playsLeft = await DailyLimitsService.getGamePlaysLeft(gameId);
+    if (playsLeft <= 0 && mounted) {
       _showAdWallDialog(gameId, gameTitle);
       return;
     }
@@ -72,9 +74,10 @@ class _ArcadeScreenState extends ConsumerState<ArcadeScreen> {
     required String gameEmoji,
     required SpaceModel space,
   }) async {
-    // 1. Consume play or show AdWall
-    final hasPlays = await DailyLimitsService.consumeGamePlay(gameId);
-    if (!hasPlays && mounted) {
+    // 1. Only CHECK plays — do not consume yet.
+    // The play is consumed inside the game screen's initState (when the game actually starts).
+    final playsLeft = await DailyLimitsService.getGamePlaysLeft(gameId);
+    if (playsLeft <= 0 && mounted) {
       _showAdWallDialog(gameId, gameTitle);
       return;
     }

@@ -8,6 +8,7 @@ import '../../../../core/utils/responsive.dart';
 import '../../../../shared/providers/app_providers.dart';
 import '../../../vibe/presentation/widgets/sync_status_chip.dart';
 import '../../../../core/ads/ad_service.dart';
+import '../../../../core/services/daily_limits_service.dart';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 const int _kGridCols = 8;
@@ -42,6 +43,8 @@ class _WordHuntScreenState extends ConsumerState<WordHuntScreen> {
   void initState() {
     super.initState();
     _loadDictionary();
+    // Consume the play now — the user is actually IN the game.
+    DailyLimitsService.consumeGamePlay('wordhunt');
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _presenceRepo = ref.read(presenceRepositoryProvider);
       _presenceRepo.setPresent(widget.spaceId, 'word_hunt', widget.deviceId);
