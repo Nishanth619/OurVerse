@@ -60,10 +60,21 @@ class _StreamScreenState extends ConsumerState<StreamScreen> {
   int? _remoteScreenUid;
 
 
-  // Assign UID 1 to whichever deviceId is lexicographically smaller, UID 2 to the other.
-  // This guarantees both users ALWAYS get different UIDs (never a collision).
-  int get _myUid => widget.deviceId.compareTo(widget.partnerId) < 0 ? 1 : 2;
-  int get _partnerUid => _myUid == 1 ? 2 : 1;
+  // Use a stable hash of spaceId+deviceId so each device always gets
+  // the same UID in the same channel — no collision, no dependency on partnerId.
+  static int _stableUid(String spaceId, String deviceId) {
+    final combined = '$spaceId:$deviceId';
+    var hash = 0;
+    for (final c in combined.codeUnits) {
+      hash = (hash * 31 + c) & 0x7FFFFFFF;
+    }
+    return (hash % 99998) + 1; // always 1..99999
+  }
+
+  int get _myUid => _stableUid(widget.spaceId, widget.deviceId);
+  int get _partnerUid => widget.partnerId.isNotEmpty
+      ? _stableUid(widget.spaceId, widget.partnerId)
+      : (_myUid == 1 ? 2 : 1); // safe fallback
   int get _myScreenUid => _myUid + 100000;
 
   late final StreamRepository _repo;
@@ -115,18 +126,24 @@ class _StreamScreenState extends ConsumerState<StreamScreen> {
 
   Future<String> _fetchToken(int uid) async {
     try {
-      final response = await http.get(Uri.parse('$_tokenUrl?channelName=${widget.spaceId}&uid=$uid'));
+      final url = '$_tokenUrl?channelName=${widget.spaceId}&uid=$uid';
+      debugPrint('[Stream] Fetching token: $url');
+      final response = await http.get(Uri.parse(url));
+      debugPrint('[Stream] Token status: ${response.statusCode}');
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         return data['token'] as String;
+      } else {
+        debugPrint('[Stream] Token error body: ${response.body}');
       }
     } catch (e) {
-      debugPrint('Failed to fetch token: $e');
+      debugPrint('[Stream] Token fetch error: $e');
     }
     return '';
   }
 
   Future<void> _initAgora() async {
+    debugPrint('[Stream] myUid=$_myUid partnerUid=$_partnerUid spaceId=${widget.spaceId} partnerId=${widget.partnerId}');
     await [Permission.microphone, Permission.camera].request();
 
     if (_engine == null) {
