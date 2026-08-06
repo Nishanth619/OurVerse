@@ -2,14 +2,62 @@ import 'package:closer/core/utils/app_utils.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:showcaseview/showcaseview.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/services/onboarding_service.dart';
+import '../../../../core/ads/ad_service.dart';
 import '../../../../shared/providers/app_providers.dart';
 
-class GamesScreen extends ConsumerWidget {
+class GamesScreen extends ConsumerStatefulWidget {
   const GamesScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<GamesScreen> createState() => _GamesScreenState();
+}
+
+final _keyFlash = GlobalKey();
+final _keyArcade = GlobalKey();
+final _keyVibe = GlobalKey();
+
+class _GamesScreenState extends ConsumerState<GamesScreen> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _maybeStartCoachMarks();
+    });
+
+    ShowcaseView.register(
+      onFinish: () => OnboardingService.markGamesCoachMarksDone(),
+      blurValue: 2,
+    );
+  }
+
+  Future<void> _maybeStartCoachMarks() async {
+    if (!mounted) return;
+    final done = await OnboardingService.isGamesCoachMarksDone();
+    if (!mounted || done) return;
+    await Future.delayed(const Duration(milliseconds: 800));
+    if (!mounted) return;
+    try {
+      ShowcaseView.get().startShowCase([
+        _keyFlash,
+        _keyArcade,
+        _keyVibe,
+      ]);
+    } catch (_) {}
+  }
+
+  @override
+  void dispose() {
+    try {
+      ShowcaseView.get().unregister();
+    } catch (_) {}
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final spaceAsync = ref.watch(spaceStreamProvider);
     final deviceIdAsync = ref.watch(deviceIdProvider);
     final theme = Theme.of(context);
@@ -82,24 +130,34 @@ class GamesScreen extends ConsumerWidget {
                             },
                           ),
                           // —— Game Card 3: Flash ——
-                          _GameCard(
+                          Showcase(
+                            key: _keyFlash,
                             title: 'Flash ⚡',
-                            subtitle: 'Daily photo streak',
-                            emoji: '📸',
-                            color: const Color(0xFFFF7043),
-                            onTap: () {
-                              context.push('/games/flash');
-                            },
+                            description: 'A daily photo streak with your partner.',
+                            child: _GameCard(
+                              title: 'Flash ⚡',
+                              subtitle: 'Daily photo streak',
+                              emoji: '📸',
+                              color: const Color(0xFFFF7043),
+                              onTap: () {
+                                context.push('/games/flash');
+                              },
+                            ),
                           ),
                           // —— Game Card 4: Arcade Games ——
-                          _GameCard(
+                          Showcase(
+                            key: _keyArcade,
                             title: 'Arcade Games',
-                            subtitle: 'Multiplayer games',
-                            emoji: '🕹️',
-                            color: const Color(0xFF9C27B0), // Purple color
-                            onTap: () {
-                              context.push('/games/arcade');
-                            },
+                            description: 'Real-time multiplayer games like Ludo and Word Hunt!',
+                            child: _GameCard(
+                              title: 'Arcade Games',
+                              subtitle: 'Multiplayer games',
+                              emoji: '🕹️',
+                              color: const Color(0xFF9C27B0), // Purple color
+                              onTap: () {
+                                context.push('/games/arcade');
+                              },
+                            ),
                           ),
                           // —— Game Card 5: Watch Together (YouTube) ——
                           _GameCard(
@@ -110,17 +168,28 @@ class GamesScreen extends ConsumerWidget {
                             onTap: () => context.push('/youtube-sync'),
                           ),
                           // —— Game Card 6: Vibe Together ——
-                          _GameCard(
+                          Showcase(
+                            key: _keyVibe,
                             title: 'Vibe Together',
-                            subtitle: 'Listen to music in sync',
-                            emoji: '🎧',
-                            color: const Color(0xFFB388FF),
-                            onTap: () => context.push('/vibe'),
+                            description: 'Listen to music in sync with your partner.',
+                            child: _GameCard(
+                              title: 'Vibe Together',
+                              subtitle: 'Listen to music in sync',
+                              emoji: '🎧',
+                              color: const Color(0xFFB388FF),
+                              onTap: () => context.push('/vibe'),
+                            ),
                           ),
                         ]),
                       ),
                     ),
-                    const SliverPadding(padding: EdgeInsets.only(bottom: 32)),
+                    const SliverToBoxAdapter(
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(vertical: 16),
+                        child: Center(child: AdBannerWidget()),
+                      ),
+                    ),
+                    const SliverPadding(padding: EdgeInsets.only(bottom: 24)),
                   ],
                 );
               },

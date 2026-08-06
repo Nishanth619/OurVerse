@@ -268,27 +268,24 @@ class _FlashScreenState extends ConsumerState<FlashScreen>
                             ),
 
                           // —— Photo cards row ——————————————————————————————
-                          Row(
-                            children: [
-                              Expanded(
+                          Wrap(
+                            spacing: 12,
+                            runSpacing: 12,
+                            children: widget.memberIds.map((id) {
+                              final isMe = id == widget.deviceId;
+                              final label = isMe
+                                  ? 'You ⚡'
+                                  : (widget.memberIds.length <= 2 ? 'Partner 💕' : 'Friend ${id.length > 5 ? id.substring(0, 6).toUpperCase() : id}');
+                              return SizedBox(
+                                width: (MediaQuery.of(context).size.width - 40 - 12) / 2,
                                 child: _PhotoCard(
-                                  label: 'You ⚡',
-                                  entry: flashDay.entryFor(widget.deviceId),
-                                  isMe: true,
+                                  label: label,
+                                  entry: flashDay.entryFor(id),
+                                  isMe: isMe,
+                                  partnerHasFlashed: flashDay.hasFlashed(id),
                                 ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: _PhotoCard(
-                                  label: 'Partner 💕',
-                                  entry: _partnerId.isNotEmpty
-                                      ? flashDay.entryFor(_partnerId)
-                                      : null,
-                                  isMe: false,
-                                  partnerHasFlashed: partnerHasFlashed,
-                                ),
-                              ),
-                            ],
+                              );
+                            }).toList(),
                           ),
 
                           const SizedBox(height: 24),

@@ -1,12 +1,9 @@
-import 'dart:io';
 import 'package:file_picker/file_picker.dart';
-import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:http/http.dart' as http;
 import '../../data/vibe_models.dart';
-import '../../providers/vibe_providers.dart';
 
 /// Shows a bottom sheet to pick a local audio file and either:
 ///  - Upload it to Firebase Storage so both partners stream it (local_upload), or
@@ -43,8 +40,7 @@ class _LocalSongPickerSheet extends ConsumerStatefulWidget {
       _LocalSongPickerSheetState();
 }
 
-class _LocalSongPickerSheetState
-    extends ConsumerState<_LocalSongPickerSheet> {
+class _LocalSongPickerSheetState extends ConsumerState<_LocalSongPickerSheet> {
   PlatformFile? _pickedFile;
   bool _uploadAndShare = true; // default: share with partner
   double _uploadProgress = 0;
@@ -53,7 +49,10 @@ class _LocalSongPickerSheetState
   String? _error;
 
   Future<void> _pickFile() async {
-    setState(() { _isPicking = true; _error = null; });
+    setState(() {
+      _isPicking = true;
+      _error = null;
+    });
     try {
       final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
@@ -74,9 +73,12 @@ class _LocalSongPickerSheetState
     final file = _pickedFile;
     if (file == null || file.path == null) return;
 
-    setState(() { _isUploading = true; _error = null; _uploadProgress = 0; });
+    setState(() {
+      _isUploading = true;
+      _error = null;
+      _uploadProgress = 0;
+    });
 
-    final repo = ref.read(vibeRepositoryProvider);
     final fileName = file.name;
     final filePath = file.path!;
     final songId = 'local_${DateTime.now().millisecondsSinceEpoch}';
@@ -85,7 +87,8 @@ class _LocalSongPickerSheetState
     try {
       if (_uploadAndShare) {
         // ── Upload to Cloudinary with real progress tracking ─────────────────
-        final uri = Uri.parse('https://api.cloudinary.com/v1_1/nolznxpk/auto/upload');
+        final uri =
+            Uri.parse('https://api.cloudinary.com/v1_1/nolznxpk/auto/upload');
         final request = http.MultipartRequest('POST', uri);
         request.fields['upload_preset'] = 'bondly_preset';
         request.files.add(await http.MultipartFile.fromPath('file', filePath));
@@ -109,9 +112,8 @@ class _LocalSongPickerSheetState
           } else if (mounted) {
             // No content-length: pulse between 30% and 80%
             setState(() {
-              _uploadProgress = (_uploadProgress < 0.8)
-                  ? _uploadProgress + 0.05
-                  : 0.3;
+              _uploadProgress =
+                  (_uploadProgress < 0.8) ? _uploadProgress + 0.05 : 0.3;
             });
           }
         }
@@ -119,7 +121,8 @@ class _LocalSongPickerSheetState
         String? downloadUrl;
         if (streamedResponse.statusCode == 200) {
           final responseBody = String.fromCharCodes(chunks);
-          final match = RegExp(r'"secure_url":"([^"]+)"').firstMatch(responseBody);
+          final match =
+              RegExp(r'"secure_url":"([^"]+)"').firstMatch(responseBody);
           if (match != null) {
             downloadUrl = match.group(1);
           }
@@ -157,7 +160,8 @@ class _LocalSongPickerSheetState
           videoDurationMs: durationMs,
           isPlaying: true,
           sourceType: 'local_sync',
-          localStorageUrl: filePath, // local path stored only for current device
+          localStorageUrl:
+              filePath, // local path stored only for current device
           startedAt: DateTime.now().millisecondsSinceEpoch,
           startPositionMs: 0,
           updatedBy: widget.deviceId,
@@ -211,7 +215,10 @@ class _LocalSongPickerSheetState
                   width: 40,
                   height: 4,
                   decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.24),
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onSurface
+                        .withValues(alpha: 0.24),
                     borderRadius: BorderRadius.circular(2),
                   ),
                 ),
@@ -222,7 +229,7 @@ class _LocalSongPickerSheetState
               Text(
                 '📂 Play a local song',
                 style: GoogleFonts.outfit(
-                  color: Theme.of(context).colorScheme.onSurface,
+                  color: Colors.white,
                   fontSize: 20,
                   fontWeight: FontWeight.w700,
                 ),
@@ -231,7 +238,11 @@ class _LocalSongPickerSheetState
               Text(
                 'Pick an offline song from your device',
                 style: TextStyle(
-                    color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5), fontSize: 13),
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onSurface
+                        .withValues(alpha: 0.5),
+                    fontSize: 13),
               ),
               SizedBox(height: 24),
 
@@ -254,17 +265,23 @@ class _LocalSongPickerSheetState
               if (_pickedFile != null && !_isUploading)
                 Container(
                   decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.06),
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onSurface
+                        .withValues(alpha: 0.06),
                     borderRadius: BorderRadius.circular(14),
                     border: Border.all(
-                        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.1)),
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onSurface
+                            .withValues(alpha: 0.1)),
                   ),
                   child: SwitchListTile(
                     contentPadding:
                         const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                     title: Text('Upload & share with partner',
                         style: TextStyle(
-                            color: Theme.of(context).colorScheme.onSurface,
+                            color: Colors.white,
                             fontSize: 14,
                             fontWeight: FontWeight.w600)),
                     subtitle: Text(
@@ -272,7 +289,10 @@ class _LocalSongPickerSheetState
                           ? 'Partner will stream your file automatically'
                           : 'Sync controls only — partner needs the same song',
                       style: TextStyle(
-                          color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5),
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurface
+                              .withValues(alpha: 0.5),
                           fontSize: 12),
                     ),
                     value: _uploadAndShare,
@@ -294,7 +314,10 @@ class _LocalSongPickerSheetState
                         borderRadius: BorderRadius.circular(4),
                         child: LinearProgressIndicator(
                           value: _uploadProgress,
-                          backgroundColor: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.12),
+                          backgroundColor: Theme.of(context)
+                              .colorScheme
+                              .onSurface
+                              .withValues(alpha: 0.12),
                           valueColor: const AlwaysStoppedAnimation<Color>(
                               Color(0xFFB388FF)),
                           minHeight: 6,
@@ -317,8 +340,7 @@ class _LocalSongPickerSheetState
               if (_error != null) ...[
                 SizedBox(height: 12),
                 Text(_error!,
-                    style: TextStyle(
-                        color: Color(0xFFFF6E6E), fontSize: 13)),
+                    style: TextStyle(color: Color(0xFFFF6E6E), fontSize: 13)),
               ],
 
               SizedBox(height: 24),
@@ -331,9 +353,15 @@ class _LocalSongPickerSheetState
                 style: ElevatedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 16),
                   backgroundColor: const Color(0xFFB388FF),
-                  disabledBackgroundColor: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.12),
-                  foregroundColor: Theme.of(context).colorScheme.onSurface,
-                  disabledForegroundColor: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.38),
+                  disabledBackgroundColor: Theme.of(context)
+                      .colorScheme
+                      .onSurface
+                      .withValues(alpha: 0.12),
+                  foregroundColor: Colors.white,
+                  disabledForegroundColor: Theme.of(context)
+                      .colorScheme
+                      .onSurface
+                      .withValues(alpha: 0.38),
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(16)),
                   elevation: 0,
@@ -343,12 +371,18 @@ class _LocalSongPickerSheetState
                         width: 18,
                         height: 18,
                         child: CircularProgressIndicator(
-                            color: Theme.of(context).colorScheme.onSurface, strokeWidth: 2))
+                            color: Colors.white,
+                            strokeWidth: 2))
                     : Icon(
                         _uploadAndShare
                             ? Icons.cloud_upload_rounded
                             : Icons.sync_rounded,
-                        color: _pickedFile == null ? Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.54) : Theme.of(context).colorScheme.onSurface,
+                        color: _pickedFile == null
+                            ? Theme.of(context)
+                                .colorScheme
+                                .onSurface
+                                .withValues(alpha: 0.54)
+                            : Colors.white,
                       ),
                 label: Text(
                   _isUploading
@@ -359,7 +393,12 @@ class _LocalSongPickerSheetState
                   style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
-                      color: _pickedFile == null ? Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.54) : Theme.of(context).colorScheme.onSurface),
+                      color: _pickedFile == null
+                          ? Theme.of(context)
+                              .colorScheme
+                              .onSurface
+                              .withValues(alpha: 0.54)
+                          : Colors.white),
                 ),
               ),
             ],
@@ -384,7 +423,8 @@ class _PickButton extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 20),
         decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.06),
+          color:
+              Colors.white.withValues(alpha: 0.06),
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
             color: const Color(0xFFB388FF).withValues(alpha: 0.4),
@@ -413,7 +453,11 @@ class _PickButton extends StatelessWidget {
             Text(
               'MP3 · M4A · FLAC · AAC · WAV',
               style: TextStyle(
-                  color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.35), fontSize: 11),
+                  color: Theme.of(context)
+                      .colorScheme
+                      .onSurface
+                      .withValues(alpha: 0.35),
+                  fontSize: 11),
             ),
           ],
         ),
@@ -443,8 +487,8 @@ class _FileCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: const Color(0xFFB388FF).withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-            color: const Color(0xFFB388FF).withValues(alpha: 0.35)),
+        border:
+            Border.all(color: const Color(0xFFB388FF).withValues(alpha: 0.35)),
       ),
       child: Row(
         children: [
@@ -456,8 +500,7 @@ class _FileCard extends StatelessWidget {
               borderRadius: BorderRadius.circular(10),
             ),
             child: Center(
-              child: Text(
-                  ext.isEmpty ? '🎵' : ext,
+              child: Text(ext.isEmpty ? '🎵' : ext,
                   style: TextStyle(
                       fontSize: ext.isEmpty ? 22.0 : 12.0,
                       color: const Color(0xFFB388FF),
@@ -471,7 +514,7 @@ class _FileCard extends StatelessWidget {
               children: [
                 Text(name,
                     style: TextStyle(
-                        color: Theme.of(context).colorScheme.onSurface,
+                        color: Colors.white,
                         fontWeight: FontWeight.w600,
                         fontSize: 14),
                     maxLines: 1,
@@ -479,7 +522,10 @@ class _FileCard extends StatelessWidget {
                 SizedBox(height: 2),
                 Text(size,
                     style: TextStyle(
-                        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.45),
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onSurface
+                            .withValues(alpha: 0.45),
                         fontSize: 12)),
               ],
             ),
@@ -488,7 +534,11 @@ class _FileCard extends StatelessWidget {
             IconButton(
               onPressed: onClear,
               icon: Icon(Icons.close_rounded,
-                  color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.38), size: 20),
+                  color: Theme.of(context)
+                      .colorScheme
+                      .onSurface
+                      .withValues(alpha: 0.38),
+                  size: 20),
               tooltip: 'Remove',
             ),
         ],

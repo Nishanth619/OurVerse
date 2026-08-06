@@ -19,12 +19,14 @@ class SnakesLaddersScreen extends ConsumerStatefulWidget {
   final String spaceId;
   final List<String> memberIds;
   final String deviceId;
+  final String spaceType;
 
   const SnakesLaddersScreen({
     super.key,
     required this.spaceId,
     required this.memberIds,
     required this.deviceId,
+    this.spaceType = 'couple',
   });
 
   @override
@@ -52,6 +54,8 @@ class _SnakesLaddersScreenState extends ConsumerState<SnakesLaddersScreen>
   String get _partnerId =>
       widget.memberIds.firstWhere((id) => id != widget.deviceId, orElse: () => '');
 
+  String get _label => widget.spaceType == 'friends' ? 'Bestie' : 'Partner';
+
   late final PresenceRepository _presenceRepo;
 
   @override
@@ -72,6 +76,12 @@ class _SnakesLaddersScreenState extends ConsumerState<SnakesLaddersScreen>
 
   // ── Roll dice ───────────────────────────────────────────────────────────
   void _rollDice(SnakesLaddersSession session) {
+    if (_partnerId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('⏳ Waiting for $_label to join...')),
+      );
+      return;
+    }
     final myTurn = session.turn == widget.deviceId;
     if (!myTurn || session.hasRolled || _rolling || _animating) return;
 
@@ -164,11 +174,8 @@ class _SnakesLaddersScreenState extends ConsumerState<SnakesLaddersScreen>
     }
 
     // Determine next turn
-    // Rolling a 6 gives an extra turn. If partner is not in the space yet,
-    // keep turn with current player to avoid passing to an empty ID.
-    final nextTurn = (diceValue == 6 || _partnerId.isEmpty)
-        ? widget.deviceId
-        : _partnerId;
+    // Strictly alternate turns.
+    final nextTurn = _partnerId;
     final nextStatus = (finalPos == 100) ? '${myColor}_won' : session.status;
     final finalTurn = (finalPos == 100) ? session.turn : nextTurn;
 
@@ -379,7 +386,7 @@ class _SnakesLaddersScreenState extends ConsumerState<SnakesLaddersScreen>
                       textAlign: TextAlign.center),
                   const SizedBox(height: 16),
                   Text(
-                    iWon ? 'You Win! 🏆' : 'Partner Won!',
+                    iWon ? 'You Win! 🏆' : '$_label Won!',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: context.sp(30),

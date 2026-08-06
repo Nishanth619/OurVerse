@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../../stream/presentation/widgets/screen_share_bar.dart';
+import '../../../stream/providers/stream_providers.dart';
 
-class MainShellScreen extends StatelessWidget {
+class MainShellScreen extends ConsumerWidget {
   final StatefulNavigationShell shell;
   const MainShellScreen({super.key, required this.shell});
 
@@ -13,7 +16,7 @@ class MainShellScreen extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return PopScope(
       canPop: shell.currentIndex == 0,
       onPopInvokedWithResult: (didPop, result) {
@@ -25,7 +28,16 @@ class MainShellScreen extends StatelessWidget {
         }
       },
       child: Scaffold(
-        body: shell,
+        body: Column(
+          children: [
+            Expanded(child: shell),
+            Consumer(builder: (ctx, ref, _) {
+              final state = ref.watch(screenShareStateProvider);
+              if (!state.isInRoom && !state.isSharing) return const SizedBox.shrink();
+              return const ScreenShareBar();
+            }),
+          ],
+        ),
         bottomNavigationBar: NavigationBar(
           selectedIndex: shell.currentIndex,
           onDestinationSelected: _onTap,

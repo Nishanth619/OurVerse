@@ -1,7 +1,5 @@
 import 'dart:async';
-import 'dart:io';
 import 'package:firebase_database/firebase_database.dart';
-import 'package:firebase_storage/firebase_storage.dart';
 import 'vibe_models.dart';
 
 /// Handles all Firebase RTDB read/write operations for the Vibe Together feature.
@@ -66,32 +64,8 @@ class VibeRepository {
   /// Clears the current session.
   Future<void> clearSession(String spaceId) => _sessionRef(spaceId).remove();
 
-  // ── Local file upload ─────────────────────────────────────────────────────
-
-  /// Uploads a local audio [file] to Firebase Storage under this space.
-  /// Returns a [Stream<TaskSnapshot>] so the caller can show upload progress.
-  ///
-  /// Typical usage:
-  /// ```dart
-  /// final stream = repo.uploadLocalSong(spaceId, file, fileName);
-  /// await for (final snap in stream) {
-  ///   final progress = snap.bytesTransferred / snap.totalBytes;
-  /// }
-  /// final url = await stream.last.ref.getDownloadURL();
-  /// ```
-  Stream<TaskSnapshot> uploadLocalSong(
-    String spaceId,
-    File file,
-    String fileName,
-  ) {
-    final storageRef = FirebaseStorage.instance
-        .ref('vibe/$spaceId/${DateTime.now().millisecondsSinceEpoch}_$fileName');
-    final task = storageRef.putFile(
-      file,
-      SettableMetadata(contentType: 'audio/mpeg'),
-    );
-    return task.snapshotEvents;
-  }
+  // ── Local file upload ────────────────────────────────────────────────────────
+  // (Song uploads now happen via Cloudinary in local_song_picker_sheet.dart)
 
   /// Updates play/pause state + re-anchors the server timestamp.
   Future<void> updatePlayState({

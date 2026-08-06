@@ -20,12 +20,14 @@ class LudoScreen extends ConsumerStatefulWidget {
   final String spaceId;
   final List<String> memberIds;
   final String deviceId;
+  final String spaceType;
 
   const LudoScreen({
     super.key,
     required this.spaceId,
     required this.memberIds,
     required this.deviceId,
+    this.spaceType = 'couple',
   });
 
   @override
@@ -39,6 +41,8 @@ class _LudoScreenState extends ConsumerState<LudoScreen> {
 
   String get _partnerId =>
       widget.memberIds.firstWhere((id) => id != widget.deviceId, orElse: () => '');
+
+  String get _label => widget.spaceType == 'friends' ? 'Bestie' : 'Partner';
 
   late final PresenceRepository _presenceRepo;
 
@@ -368,7 +372,7 @@ class _LudoScreenState extends ConsumerState<LudoScreen> {
                       textAlign: TextAlign.center),
                   const SizedBox(height: 20),
                   Text(
-                    iWon ? 'You Won!' : 'Partner Won!',
+                    iWon ? 'You Won!' : '$_label Won!',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                         fontSize: context.sp(32),
@@ -421,7 +425,7 @@ class _LudoScreenState extends ConsumerState<LudoScreen> {
           child: Text(
             myTurn
                 ? '🎲  Your turn! ${session.hasRolled ? "Tap a token to move" : "Roll the dice"}'
-                : "⏳  Partner's turn...",
+                : "⏳  $_label's turn...",
             textAlign: TextAlign.center,
             style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
           ),

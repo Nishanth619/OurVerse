@@ -19,7 +19,6 @@ class _WelcomeScreenState extends State<WelcomeScreen>
   late final Animation<Offset> _heroSlide;
   late final Animation<double> _titleOpacity;
   late final Animation<Offset> _titleSlide;
-  late final Animation<double> _chipsOpacity;
   late final Animation<double> _buttonsOpacity;
   late final Animation<Offset> _buttonsSlide;
 
@@ -55,12 +54,6 @@ class _WelcomeScreenState extends State<WelcomeScreen>
           curve: const Interval(0.2, 0.6, curve: Curves.easeOutCubic)),
     );
 
-    _chipsOpacity = Tween<double>(begin: 0, end: 1).animate(
-      CurvedAnimation(
-          parent: _ctrl,
-          curve: const Interval(0.45, 0.75, curve: Curves.easeOut)),
-    );
-
     _buttonsOpacity = Tween<double>(begin: 0, end: 1).animate(
       CurvedAnimation(
           parent: _ctrl,
@@ -93,7 +86,8 @@ class _WelcomeScreenState extends State<WelcomeScreen>
             SliverFillRemaining(
               hasScrollBody: false,
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 32),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 28, vertical: 32),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
@@ -182,16 +176,13 @@ class _WelcomeScreenState extends State<WelcomeScreen>
 
 // Removed FeatureChip since it is no longer used
 
-
 /// Privacy Policy and Terms of Service links shown in the welcome screen footer.
 class _LegalLinks extends StatelessWidget {
   const _LegalLinks();
 
   // Replace these with your actual hosted URLs.
-  static const _privacyUrl =
-      'https://closer.app/privacy-policy';
-  static const _termsUrl =
-      'https://closer.app/terms-of-service';
+  static const _privacyUrl = 'https://www.nexaaradhya.site/privacy/ourverse';
+  static const _termsUrl = 'https://www.nexaaradhya.site/terms/ourverse';
 
   Future<void> _open(String url) async {
     final uri = Uri.parse(url);
@@ -218,7 +209,7 @@ class _LegalLinks extends StatelessWidget {
           ),
           child: Text('Privacy Policy', style: muted),
         ),
-        Text(' · ', style: muted),
+        Text(' | ', style: muted),
         TextButton(
           onPressed: () => _open(_termsUrl),
           style: TextButton.styleFrom(

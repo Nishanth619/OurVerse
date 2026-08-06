@@ -36,12 +36,16 @@ class AppUtils {
   }
 
   static String getFriendlyErrorMessage(Object error) {
+    final msg = error.toString();
     if (_isDnsResolutionFailure(error)) {
       return 'Could not reach sync servers. If you use a custom Private DNS '
           '(Settings → Network → Private DNS), try turning it off and retry.';
     }
-    // Do NOT expose raw error.toString() to users — it can leak internal paths,
-    // SDK class names, or Firestore collection details.
+    if (msg.contains('Exception: ')) {
+      // Surface the human-readable message from our own thrown exceptions
+      // e.g. "Code not found. Check and try again." or "Space is already full."
+      return msg.split('Exception: ').last;
+    }
     return 'Something went wrong. Please check your connection and try again.';
   }
 }

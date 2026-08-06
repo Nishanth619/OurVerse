@@ -3,11 +3,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../data/services/auth_service.dart';
 import '../../../../data/services/notification_service.dart';
 import '../../../../data/services/home_widget_service.dart';
 import '../../../../shared/providers/app_providers.dart';
+import '../../../../shared/providers/subscription_providers.dart';
+import '../../../../features/premium/presentation/widgets/premium_badge.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -113,6 +116,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   Future<void> _setWidgetMode(String mode) async {
     setState(() => _widgetMode = mode);
     await HomeWidgetService.setWidgetMode(mode);
+  }
+
+  Future<void> _openUrl(String url) async {
+    final uri = Uri.parse(url);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
   }
 
   void _leaveSpace() {
@@ -451,17 +461,88 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
                 const SizedBox(height: 16),
 
-                // ── Danger Zone ────────────────────────────────────────────
-                const _SectionHeader(title: 'SPACE'),
+                // ── Premium ──────────────────────────────────────────────────────
+                const _SectionHeader(title: 'SUBSCRIPTION'),
+                Builder(builder: (context) {
+                  final isPremium = ref.watch(isPremiumProvider).valueOrNull ?? false;
+                  return Card(
+                    child: ListTile(
+                      leading: Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(
+                            colors: [Color(0xFFFFD700), Color(0xFFFFAA00)],
+                          ),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Icon(Icons.star_rounded, color: Colors.black, size: 22),
+                      ),
+                      title: Text(
+                        isPremium ? 'Ourverse Premium' : 'Upgrade to Premium',
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                      subtitle: Text(
+                        isPremium
+                            ? 'You have unlimited plays, streaming & no ads!'
+                            : 'Remove ads • Unlimited plays • Unlimited streaming',
+                      ),
+                      trailing: isPremium
+                          ? const PremiumBadge(compact: true)
+                          : const Icon(Icons.arrow_forward_ios, size: 16),
+                      onTap: () => context.push('/premium'),
+                    ),
+                  );
+                }),
+
+                const SizedBox(height: 16),
+
+                // ── About & Legal ──────────────────────────────────────────
+                const _SectionHeader(title: 'ABOUT & LEGAL'),
                 Card(
-                  child: ListTile(
-                    leading:
-                        const Icon(Icons.exit_to_app, color: Colors.redAccent),
-                    title: const Text('Leave space'),
-                    subtitle: const Text(
-                        "You'll need the invite code to rejoin"),
-                    textColor: Colors.redAccent,
-                    onTap: _leaveSpace,
+                  child: Column(
+                    children: [
+                      ListTile(
+                        leading: const Icon(Icons.privacy_tip_outlined),
+                        title: const Text('Privacy Policy'),
+                        trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                        onTap: () => _openUrl('https://www.nexaaradhya.site/privacy/ourverse'),
+                      ),
+                      const Divider(height: 1, indent: 16, endIndent: 16),
+                      ListTile(
+                        leading: const Icon(Icons.description_outlined),
+                        title: const Text('Terms and Conditions'),
+                        trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                        onTap: () => _openUrl('https://www.nexaaradhya.site/terms/ourverse'),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                // ── Danger Zone ────────────────────────────────────────────
+                const _SectionHeader(title: 'ACCOUNT & SPACE'),
+                Card(
+                  child: Column(
+                    children: [
+                      ListTile(
+                        leading:
+                            const Icon(Icons.exit_to_app, color: Colors.redAccent),
+                        title: const Text('Leave space'),
+                        subtitle: const Text(
+                            "You'll need the invite code to rejoin"),
+                        textColor: Colors.redAccent,
+                        onTap: _leaveSpace,
+                      ),
+                      const Divider(height: 1, indent: 16, endIndent: 16),
+                      ListTile(
+                        leading: const Icon(Icons.delete_forever, color: Colors.redAccent),
+                        title: const Text('Delete Account'),
+                        subtitle: const Text("Permanently erase your data"),
+                        textColor: Colors.redAccent,
+                        onTap: () => _openUrl('https://www.nexaaradhya.site/delete-account/ourverse'),
+                      ),
+                    ],
                   ),
                 ),
 

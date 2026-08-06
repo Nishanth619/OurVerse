@@ -6,10 +6,12 @@ import 'package:animated_emoji/animated_emoji.dart';
 import 'package:home_widget/home_widget.dart';
 import 'package:flutter/services.dart';
 import 'package:showcaseview/showcaseview.dart';
+import '../../../../core/ads/ad_service.dart';
 import '../../../../core/services/onboarding_service.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/app_utils.dart';
 import '../../../../data/models/models.dart';
+
 import '../../../../data/services/home_widget_service.dart';
 import '../../../../data/services/notification_service.dart';
 import '../../../../shared/providers/app_providers.dart';
@@ -33,10 +35,10 @@ class HomeScreen extends ConsumerStatefulWidget {
 }
 
 // ── GlobalKeys for coach marks (created once at class level) ─────────────────
-final _keyMood       = GlobalKey();
-final _keyQuestion   = GlobalKey();
-final _keyStreak     = GlobalKey();
-final _keyStream     = GlobalKey();
+final _keyMood = GlobalKey();
+final _keyQuestion = GlobalKey();
+final _keyStreak = GlobalKey();
+final _keyStream = GlobalKey();
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   StreamSubscription<Uri?>? _widgetClickedSub;
@@ -80,13 +82,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   void _registerListeners() {
     // ── Partner joined / partner ID widget save ───────────────────────────────
     _listeners.add(
-      ref.listenManual<AsyncValue<SpaceModel?>>(spaceStreamProvider, (previous, next) {
+      ref.listenManual<AsyncValue<SpaceModel?>>(spaceStreamProvider,
+          (previous, next) {
         final prevSpace = previous?.value;
         final nextSpace = next.value;
 
         // Partner joined banner
-        if (prevSpace != null && nextSpace != null &&
-            nextSpace.memberDeviceIds.length > prevSpace.memberDeviceIds.length) {
+        if (prevSpace != null &&
+            nextSpace != null &&
+            nextSpace.memberDeviceIds.length >
+                prevSpace.memberDeviceIds.length) {
           if (!mounted) return;
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -97,14 +102,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   Expanded(
                     child: Text(
                       'Your partner just joined the space!',
-                      style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+                      style:
+                          TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
                     ),
                   ),
                 ],
               ),
               backgroundColor: AppTheme.accent,
               behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16)),
               margin: const EdgeInsets.all(16),
               duration: const Duration(seconds: 5),
             ),
@@ -116,7 +123,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           if (!mounted) return;
           final myId = ref.read(deviceIdProvider).valueOrNull;
           if (space == null || myId == null) return;
-          final partnerId = space.memberDeviceIds.where((id) => id != myId).firstOrNull;
+          final partnerId =
+              space.memberDeviceIds.where((id) => id != myId).firstOrNull;
           if (partnerId != null) HomeWidgetService.savePartnerId(partnerId);
         });
       }),
@@ -124,7 +132,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
     // ── Mood change notifications + widget updates ────────────────────────────
     _listeners.add(
-      ref.listenManual<AsyncValue<DailyMoodModel?>>(todayMoodsProvider, (previous, next) {
+      ref.listenManual<AsyncValue<DailyMoodModel?>>(todayMoodsProvider,
+          (previous, next) {
         final prevMoods = previous?.valueOrNull?.entries ?? {};
         final nextMoods = next.valueOrNull?.entries ?? {};
         final myId = ref.read(deviceIdProvider).valueOrNull;
@@ -144,19 +153,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   SnackBar(
                     content: Row(
                       children: [
-                        Text(nextPartnerMood, style: const TextStyle(fontSize: 24)),
+                        Text(nextPartnerMood,
+                            style: const TextStyle(fontSize: 24)),
                         const SizedBox(width: 12),
                         const Expanded(
                           child: Text(
                             'Your partner updated their mood!',
-                            style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+                            style: TextStyle(
+                                fontWeight: FontWeight.w600, fontSize: 16),
                           ),
                         ),
                       ],
                     ),
                     backgroundColor: AppTheme.primary,
                     behavior: SnackBarBehavior.floating,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16)),
                     margin: const EdgeInsets.all(16),
                     duration: const Duration(seconds: 4),
                   ),
@@ -179,14 +191,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               .map((e) => e.value.emoji)
               .firstOrNull;
           if (myEmoji != null) HomeWidgetService.updateMyEmoji(myEmoji);
-          if (partnerEmoji != null) HomeWidgetService.updatePartnerEmoji(partnerEmoji);
+          if (partnerEmoji != null)
+            HomeWidgetService.updatePartnerEmoji(partnerEmoji);
         });
       }),
     );
 
     // ── Question widget update ────────────────────────────────────────────────
     _listeners.add(
-      ref.listenManual<AsyncValue<QuestionModel?>>(todayQuestionProvider, (_, next) {
+      ref.listenManual<AsyncValue<QuestionModel?>>(todayQuestionProvider,
+          (_, next) {
         next.whenData((q) {
           if (q != null) HomeWidgetService.updateQuestion(q.text);
         });
@@ -243,8 +257,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   .firstWhere((id) => id != myId, orElse: () => '');
               if (partnerId.isEmpty) return;
 
-              final prevEntry =
-                  previous?.valueOrNull?.entryFor(partnerId);
+              final prevEntry = previous?.valueOrNull?.entryFor(partnerId);
               final nextEntry = flashDay.entryFor(partnerId);
 
               // Only update when partner's entry is NEW (wasn't there before)
@@ -310,14 +323,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   actions: [
                     TextButton(
                       onPressed: () {
-                        ScaffoldMessenger.of(context).hideCurrentMaterialBanner();
+                        ScaffoldMessenger.of(context)
+                            .hideCurrentMaterialBanner();
                       },
                       child: const Text('Dismiss',
                           style: TextStyle(color: Colors.white38)),
                     ),
                     TextButton(
                       onPressed: () {
-                        ScaffoldMessenger.of(context).hideCurrentMaterialBanner();
+                        ScaffoldMessenger.of(context)
+                            .hideCurrentMaterialBanner();
                         context.push('/youtube-sync');
                       },
                       child: const Text('Join Now',
@@ -386,14 +401,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   actions: [
                     TextButton(
                       onPressed: () {
-                        ScaffoldMessenger.of(context).hideCurrentMaterialBanner();
+                        ScaffoldMessenger.of(context)
+                            .hideCurrentMaterialBanner();
                       },
                       child: const Text('Dismiss',
                           style: TextStyle(color: Colors.white38)),
                     ),
                     TextButton(
                       onPressed: () {
-                        ScaffoldMessenger.of(context).hideCurrentMaterialBanner();
+                        ScaffoldMessenger.of(context)
+                            .hideCurrentMaterialBanner();
                         context.push('/stream');
                       },
                       child: const Text('Join Live',
@@ -463,14 +480,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       body: SafeArea(
         child: spaceAsync.when(
           loading: () => const Center(child: CircularProgressIndicator()),
-          error: (e, _) => _ErrorView(message: AppUtils.getFriendlyErrorMessage(e)),
+          error: (e, _) =>
+              _ErrorView(message: AppUtils.getFriendlyErrorMessage(e)),
           data: (space) {
             if (space == null) {
-              return const _ErrorView(message: 'No space found. Restart the app.');
+              return const _ErrorView(
+                  message: 'No space found. Restart the app.');
             }
             return deviceIdAsync.when(
               loading: () => const Center(child: CircularProgressIndicator()),
-              error: (e, _) => _ErrorView(message: AppUtils.getFriendlyErrorMessage(e)),
+              error: (e, _) =>
+                  _ErrorView(message: AppUtils.getFriendlyErrorMessage(e)),
               data: (deviceId) => _HomeBody(
                 space: space,
                 deviceId: deviceId,
@@ -511,18 +531,25 @@ class _HomeBody extends ConsumerWidget {
           floating: true,
           title: Row(
             children: [
-              Text(
-                space.spaceName.isNotEmpty ? space.spaceName : 'OurVerse',
+              Flexible(
+                child: Text(
+                  space.spaceName.isNotEmpty ? space.spaceName : 'OurVerse',
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 1,
+                ),
               ),
               const Spacer(),
               Showcase(
                 key: _keyStreak,
                 title: '🔥 Your Streak',
-                description: 'Open the app every day together to keep\nyour streak alive. Don\'t break the chain!',
+                description:
+                    'Open the app every day together to keep\nyour streak alive. Don\'t break the chain!',
                 titleTextStyle: const TextStyle(
-                  color: Colors.white, fontWeight: FontWeight.w800, fontSize: 15),
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 15),
                 descTextStyle: const TextStyle(
-                  color: Colors.white70, fontSize: 13, height: 1.5),
+                    color: Colors.white70, fontSize: 13, height: 1.5),
                 tooltipBackgroundColor: const Color(0xFF1A1A2E),
                 targetShapeBorder: const CircleBorder(),
                 child: _StreakBadge(streak: space.currentStreak),
@@ -536,6 +563,11 @@ class _HomeBody extends ConsumerWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // ── Streak Recovery Banner ────────────────────────────────
+                if (space.lostStreak > 1)
+                  _StreakRecoveryBanner(space: space),
+                if (space.lostStreak > 1)
+                  const SizedBox(height: 12),
                 // ── Mood Section ──────────────────────────────────────────
                 Text(
                   'How are you feeling today?',
@@ -545,11 +577,14 @@ class _HomeBody extends ConsumerWidget {
                 Showcase(
                   key: _keyMood,
                   title: '😊 Mood Check-in',
-                  description: 'Tap an emoji to share how you\'re feeling.\nYour partner sees it instantly.',
+                  description:
+                      'Tap an emoji to share how you\'re feeling.\nYour partner sees it instantly.',
                   titleTextStyle: const TextStyle(
-                    color: Colors.white, fontWeight: FontWeight.w800, fontSize: 15),
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 15),
                   descTextStyle: const TextStyle(
-                    color: Colors.white70, fontSize: 13, height: 1.5),
+                      color: Colors.white70, fontSize: 13, height: 1.5),
                   tooltipBackgroundColor: const Color(0xFF1A1A2E),
                   child: moodsAsync.when(
                     loading: () => const _MoodRowSkeleton(),
@@ -576,17 +611,24 @@ class _HomeBody extends ConsumerWidget {
                 Showcase(
                   key: _keyQuestion,
                   title: '❓ Daily Question',
-                  description: 'A new question every single day.\nAnswer it — see each other\'s reply once both have answered.',
+                  description:
+                      'A new question every single day.\nAnswer it — see each other\'s reply once both have answered.',
                   titleTextStyle: const TextStyle(
-                    color: Colors.white, fontWeight: FontWeight.w800, fontSize: 15),
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 15),
                   descTextStyle: const TextStyle(
-                    color: Colors.white70, fontSize: 13, height: 1.5),
+                      color: Colors.white70, fontSize: 13, height: 1.5),
                   tooltipBackgroundColor: const Color(0xFF1A1A2E),
                   child: questionAsync.when(
                     loading: () => const _QuestionCardSkeleton(),
-                    error: (e, __) => _QuestionErrorCard(onRetry: () => ref.invalidate(todayQuestionProvider)),
+                    error: (e, __) => _QuestionErrorCard(
+                        onRetry: () => ref.invalidate(todayQuestionProvider)),
                     data: (question) {
-                      if (question == null) return _QuestionErrorCard(onRetry: () => ref.invalidate(todayQuestionProvider));
+                      if (question == null)
+                        return _QuestionErrorCard(
+                            onRetry: () =>
+                                ref.invalidate(todayQuestionProvider));
                       return answersAsync.when(
                         loading: () => const _QuestionCardSkeleton(),
                         error: (_, __) => const SizedBox(),
@@ -608,11 +650,14 @@ class _HomeBody extends ConsumerWidget {
                 Showcase(
                   key: _keyStream,
                   title: '📹 Go Live Together',
-                  description: 'Stream your camera or share your screen\nlive to your partner in real time.',
+                  description:
+                      'Stream your camera or share your screen\nlive to your partner in real time.',
                   titleTextStyle: const TextStyle(
-                    color: Colors.white, fontWeight: FontWeight.w800, fontSize: 15),
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 15),
                   descTextStyle: const TextStyle(
-                    color: Colors.white70, fontSize: 13, height: 1.5),
+                      color: Colors.white70, fontSize: 13, height: 1.5),
                   tooltipBackgroundColor: const Color(0xFF1A1A2E),
                   child: GestureDetector(
                     onTap: () => context.push('/stream'),
@@ -638,7 +683,8 @@ class _HomeBody extends ConsumerWidget {
                               color: Colors.white.withValues(alpha: 0.2),
                               borderRadius: BorderRadius.circular(12),
                             ),
-                            child: const Icon(Icons.live_tv, color: Colors.white, size: 24),
+                            child: const Icon(Icons.live_tv,
+                                color: Colors.white, size: 24),
                           ),
                           const SizedBox(width: 14),
                           const Expanded(
@@ -655,12 +701,14 @@ class _HomeBody extends ConsumerWidget {
                                 ),
                                 Text(
                                   'Stream your camera to your partner',
-                                  style: TextStyle(color: Colors.white70, fontSize: 12),
+                                  style: TextStyle(
+                                      color: Colors.white70, fontSize: 12),
                                 ),
                               ],
                             ),
                           ),
-                          const Icon(Icons.chevron_right, color: Colors.white70),
+                          const Icon(Icons.chevron_right,
+                              color: Colors.white70),
                         ],
                       ),
                     ),
@@ -672,6 +720,112 @@ class _HomeBody extends ConsumerWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+// ─── Streak Recovery Banner ──────────────────────────────────────────────────
+
+class _StreakRecoveryBanner extends ConsumerWidget {
+  final SpaceModel space;
+  const _StreakRecoveryBanner({required this.space});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final spaceId = ref.read(activeSpaceIdProvider);
+    final adsWatched = space.streakReviveAdsWatched;
+    final adsNeeded = 3 - adsWatched;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF6A1A1A), Color(0xFF2D0A0A)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.red.withValues(alpha: 0.4)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Text('💔', style: TextStyle(fontSize: 20)),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Streak Broken! ${space.lostStreak}-day streak lost.',
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 14),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          // Progress dots
+          Row(
+            children: [
+              for (int i = 0; i < 3; i++) ...
+                [Icon(
+                  i < adsWatched ? Icons.check_circle : Icons.radio_button_unchecked,
+                  color: i < adsWatched ? Colors.green : Colors.white38,
+                  size: 20,
+                ), const SizedBox(width: 4)],
+              const SizedBox(width: 4),
+              Text(
+                '$adsWatched/3 ads watched',
+                style: const TextStyle(color: Colors.white70, fontSize: 12),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              style: FilledButton.styleFrom(
+                backgroundColor: Colors.red.shade700,
+                padding: const EdgeInsets.symmetric(vertical: 10),
+              ),
+              icon: const Icon(Icons.play_circle_outline, size: 18),
+              label: Text('Watch Ad to Recover ($adsNeeded left)'),
+              onPressed: () {
+                if (spaceId == null) return;
+                AdService.instance.showRewardedAd(
+                  onReward: () async {
+                    await ref
+                        .read(spaceRepositoryProvider)
+                        .watchStreakReviveAd(spaceId);
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(adsWatched + 1 >= 3
+                              ? '🎉 Streak Restored!'
+                              : '${adsWatched + 1}/3 ads done. Keep going!'),
+                          backgroundColor:
+                              adsWatched + 1 >= 3 ? Colors.green : Colors.orange,
+                        ),
+                      );
+                    }
+                  },
+                  onNotReady: (_) {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                            content: Text('Ad not ready yet, try again shortly.')),
+                      );
+                    }
+                  },
+                );
+              },
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -728,7 +882,6 @@ class _MoodRow extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final myMood = moods?.entries[deviceId];
     final partnerIds = members.where((id) => id != deviceId).toList();
-    final partnerMood = partnerIds.isNotEmpty ? moods?.entries[partnerIds.first] : null;
     final theme = Theme.of(context);
 
     return Container(
@@ -763,7 +916,8 @@ class _MoodRow extends ConsumerWidget {
           Row(
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
                   color: AppTheme.primary.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(10),
@@ -780,7 +934,8 @@ class _MoodRow extends ConsumerWidget {
               const Spacer(),
               if (myMood != null)
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                   decoration: BoxDecoration(
                     color: AppTheme.primary.withValues(alpha: 0.08),
                     borderRadius: BorderRadius.circular(8),
@@ -788,7 +943,8 @@ class _MoodRow extends ConsumerWidget {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(Icons.check_circle, color: AppTheme.primary, size: 12),
+                      const Icon(Icons.check_circle,
+                          color: AppTheme.primary, size: 12),
                       const SizedBox(width: 4),
                       Text(
                         'Logged',
@@ -837,7 +993,9 @@ class _MoodRow extends ConsumerWidget {
               alignment: WrapAlignment.center,
               children: AppTheme.moodEmojis.map((emoji) {
                 final isSelected = myMood?.emoji == emoji;
-                if (isSelected) return const SizedBox.shrink(); // Hide from the options list if it's currently the big selected one
+                if (isSelected)
+                  return const SizedBox
+                      .shrink(); // Hide from the options list if it's currently the big selected one
 
                 return _PressableButton(
                   onTap: () async {
@@ -876,57 +1034,70 @@ class _MoodRow extends ConsumerWidget {
           // Partner mood section
           if (members.length > 1) ...[
             const SizedBox(height: 20),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              decoration: BoxDecoration(
-                color: AppTheme.surfaceAlt.withValues(alpha: 0.6),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                  color: AppTheme.divider,
-                  width: 1,
-                ),
-              ),
-              child: Row(
-                children: [
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+            ...partnerIds.map((pId) {
+              final pMood = moods?.entries[pId];
+              final label = members.length <= 2 
+                  ? 'Partner\'s mood' 
+                  : 'Friend\'s mood (${pId.length > 5 ? pId.substring(0, 6).toUpperCase() : pId})';
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: AppTheme.surfaceAlt.withValues(alpha: 0.6),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: AppTheme.divider,
+                      width: 1,
+                    ),
+                  ),
+                  child: Row(
                     children: [
-                      Text(
-                        'Partner\'s mood',
-                        style: theme.textTheme.labelSmall?.copyWith(
-                          color: AppTheme.onSurfaceMuted,
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              label,
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color: AppTheme.onSurfaceMuted,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              pMood != null
+                                  ? 'Feeling it today 💞'
+                                  : 'Not checked in yet',
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                fontWeight: FontWeight.w600,
+                                color: pMood != null
+                                    ? AppTheme.onSurface
+                                    : AppTheme.onSurfaceMuted,
+                              ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
                         ),
                       ),
-                      const SizedBox(height: 2),
-                      Text(
-                        partnerMood != null
-                            ? 'Feeling it today 💞'
-                            : 'Not checked in yet',
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          fontWeight: FontWeight.w600,
-                          color: partnerMood != null
-                              ? AppTheme.onSurface
-                              : AppTheme.onSurfaceMuted,
+                      const SizedBox(width: 12),
+                      if (pMood != null &&
+                          AppTheme.animatedMoods[pMood.emoji] != null)
+                        AnimatedEmoji(
+                          AppTheme.animatedMoods[pMood.emoji]!,
+                          size: 44,
+                        )
+                      else
+                        Text(
+                          pMood != null ? pMood.emoji : '⏳',
+                          style: const TextStyle(fontSize: 40),
                         ),
-                      ),
                     ],
                   ),
-                  const Spacer(),
-                  if (partnerMood != null &&
-                      AppTheme.animatedMoods[partnerMood.emoji] != null)
-                    AnimatedEmoji(
-                      AppTheme.animatedMoods[partnerMood.emoji]!,
-                      size: 44,
-                    )
-                  else
-                    Text(
-                      partnerMood != null ? partnerMood.emoji : '⏳',
-                      style: const TextStyle(fontSize: 40),
-                    ),
-                ],
-              ),
-            ),
+                ),
+              );
+            }),
           ],
         ],
       ),
@@ -1087,6 +1258,7 @@ class _PressableButtonState extends State<_PressableButton>
     _ctrl.reverse();
     widget.onTap();
   }
+
   void _onTapCancel() => _ctrl.reverse();
 
   @override
@@ -1097,7 +1269,8 @@ class _PressableButtonState extends State<_PressableButton>
       onTapCancel: _onTapCancel,
       child: AnimatedBuilder(
         animation: _scale,
-        builder: (_, child) => Transform.scale(scale: _scale.value, child: child),
+        builder: (_, child) =>
+            Transform.scale(scale: _scale.value, child: child),
         child: widget.child,
       ),
     );
@@ -1198,4 +1371,3 @@ class _QuestionErrorCard extends StatelessWidget {
     );
   }
 }
-

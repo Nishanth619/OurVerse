@@ -64,12 +64,14 @@ class DoodleScreen extends ConsumerStatefulWidget {
   final String spaceId;
   final List<String> memberIds;
   final String deviceId;
+  final String spaceType;
 
   const DoodleScreen({
     super.key,
     required this.spaceId,
     required this.memberIds,
     required this.deviceId,
+    this.spaceType = 'couple',
   });
 
   @override
@@ -118,12 +120,12 @@ class _DoodleScreenState extends ConsumerState<DoodleScreen> {
   StreamSubscription<List<DoodlePoint>>? _livePartnerSub;
   StreamSubscription<bool>? _presenceSub;
 
-  String get _partnerId => widget.memberIds.firstWhere(
-        (id) => id != widget.deviceId,
-        orElse: () => '',
-      );
+  String get _partnerId =>
+      widget.memberIds.firstWhere((id) => id != widget.deviceId, orElse: () => '');
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ Derived tool helpers Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  String get _label => widget.spaceType == 'friends' ? 'Bestie' : 'Partner';
+
+  // --------------------------------- Derived tool helpers ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
   /// The color actually painted.
   /// Eraser uses Colors.transparent as sentinel — _makePaint converts it to BlendMode.clear.
@@ -687,7 +689,7 @@ class _DoodleScreenState extends ConsumerState<DoodleScreen> {
                             )
                           ],
                         ),
-                        child: const Row(
+                        child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             SizedBox(
@@ -699,8 +701,8 @@ class _DoodleScreenState extends ConsumerState<DoodleScreen> {
                                     Colors.white),
                               ),
                             ),
-                            SizedBox(width: 8),
-                            Text('Partner is drawing...',
+                            const SizedBox(width: 8),
+                            Text('$_label is drawing...',
                                 style: TextStyle(
                                     color: Colors.white,
                                     fontSize: 12,

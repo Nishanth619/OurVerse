@@ -88,10 +88,10 @@
 
         </activity>
 
-        <!-- AdMob App ID (Test ID) -->
+        <!-- AdMob App ID -->
         <meta-data
             android:name="com.google.android.gms.ads.APPLICATION_ID"
-            android:value="ca-app-pub-3940256099942544~3347511713"/>
+            android:value="ca-app-pub-4025737666505759~4119311580"/>
 
         <!-- Notification receivers for flutter_local_notifications -->
         <receiver

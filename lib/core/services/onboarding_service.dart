@@ -26,10 +26,21 @@ class OnboardingService {
     await prefs.setBool(_kCoachMarksDone, true);
   }
 
+  static Future<bool> isGamesCoachMarksDone() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool('games_coach_marks_done_v1') ?? false;
+  }
+
+  static Future<void> markGamesCoachMarksDone() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('games_coach_marks_done_v1', true);
+  }
+
   // Debug helper: reset everything (useful for testing)
   static Future<void> resetAll() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_kOnboardingDone);
     await prefs.remove(_kCoachMarksDone);
+    await prefs.remove('games_coach_marks_done_v1');
   }
 }

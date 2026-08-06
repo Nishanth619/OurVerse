@@ -68,6 +68,12 @@ class _WyrGameScreenState extends ConsumerState<WyrGameScreen> {
             const SizedBox(width: 16),
           ],
         ),
+        bottomNavigationBar: const SafeArea(
+          child: SizedBox(
+            height: 50,
+            child: Center(child: AdBannerWidget()),
+          ),
+        ),
         body: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -102,7 +108,11 @@ class _WyrGameScreenState extends ConsumerState<WyrGameScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Would You Rather'),
+        title: const FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.centerLeft,
+          child: Text('Would You Rather'),
+        ),
         actions: [
           Center(
             child: SyncStatusChip(
@@ -111,6 +121,12 @@ class _WyrGameScreenState extends ConsumerState<WyrGameScreen> {
           ),
           const SizedBox(width: 16),
         ],
+      ),
+      bottomNavigationBar: const SafeArea(
+        child: SizedBox(
+          height: 50,
+          child: Center(child: AdBannerWidget()),
+        ),
       ),
       body: SafeArea(
         child: CustomScrollView(
@@ -195,9 +211,9 @@ class _WyrGameScreenState extends ConsumerState<WyrGameScreen> {
                             if (effectivelyRevealed) ...[
                               const SizedBox(height: 24),
                               _RevealBanner(
-                                myChoice: myChoice ?? '',
-                                partnerChoice:
-                                    _partnerChose(session, widget.deviceId, widget.memberIds),
+                                session: session,
+                                myId: widget.deviceId,
+                                members: widget.memberIds,
                                 optionA: current.optionA,
                                 optionB: current.optionB,
                                 isSinglePlayer: isSinglePlayer,
@@ -308,31 +324,37 @@ class _WaitingBanner extends StatelessWidget {
 // ─── Reveal Banner ────────────────────────────────────────────────────────────
 
 class _RevealBanner extends StatelessWidget {
-  final String myChoice;
-  final String? partnerChoice;
+  final dynamic session;
+  final String myId;
+  final List<String> members;
   final String optionA;
   final String optionB;
   final bool isSinglePlayer;
 
   const _RevealBanner({
-    required this.myChoice,
-    required this.partnerChoice,
+    required this.session,
+    required this.myId,
+    required this.members,
     required this.optionA,
     required this.optionB,
     required this.isSinglePlayer,
   });
 
   String _label(String? choice) {
-    if (choice == null) return '—';
+    if (choice == null || choice.isEmpty) return '—';
     return choice == 'A' ? optionA : optionB;
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final agree = myChoice.isNotEmpty &&
-        partnerChoice != null &&
-        myChoice == partnerChoice;
+    final choices = session?.choices as Map<String, dynamic>? ?? {};
+    final myChoice = choices[myId] as String? ?? '';
+    
+    bool allAgree = false;
+    if (members.length > 1 && myChoice.isNotEmpty) {
+      allAgree = members.every((id) => choices[id] == myChoice);
+    }
 
     return AnimatedOpacity(
       duration: const Duration(milliseconds: 400),
@@ -341,28 +363,28 @@ class _RevealBanner extends StatelessWidget {
         width: double.infinity,
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: agree
+          color: allAgree
               ? AppTheme.primary.withValues(alpha: 0.08)
               : AppTheme.surfaceAlt,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-              color: agree
+              color: allAgree
                   ? AppTheme.primary.withValues(alpha: 0.3)
                   : AppTheme.divider),
         ),
         child: Column(
           children: [
-            if (agree) ...[
+            if (allAgree) ...[
               const Text('🎉', style: TextStyle(fontSize: 28)),
               const SizedBox(height: 4),
               Text(
-                'You both chose the same!',
+                members.length <= 2 ? 'You both chose the same!' : 'Everyone chose the same!',
                 style: theme.textTheme.bodyMedium?.copyWith(
                   fontWeight: FontWeight.w700,
                   color: AppTheme.primary,
                 ),
               ),
-            ] else if (!isSinglePlayer && partnerChoice != null) ...[
+            ] else if (!isSinglePlayer && choices.length > 1) ...[
               Text(
                 'Different picks — interesting!',
                 style: theme.textTheme.bodyMedium
@@ -375,19 +397,24 @@ class _RevealBanner extends StatelessWidget {
                 textAlign: TextAlign.center,
               ),
             ],
-            if (!isSinglePlayer && partnerChoice != null) ...[
+            if (!isSinglePlayer && choices.length > 1) ...[
               const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: _ChoiceChip(label: 'You', choice: _label(myChoice)),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: _ChoiceChip(
-                        label: 'Partner', choice: _label(partnerChoice)),
-                  ),
-                ],
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                alignment: WrapAlignment.center,
+                children: members.map((id) {
+                  final choice = choices[id] as String?;
+                  final isMe = id == myId;
+                  final label = isMe 
+                      ? 'You' 
+                      : (members.length <= 2 ? 'Partner' : 'Friend ${id.length > 5 ? id.substring(0, 6).toUpperCase() : id}');
+                  
+                  return SizedBox(
+                    width: (MediaQuery.of(context).size.width - 88) / 2,
+                    child: _ChoiceChip(label: label, choice: _label(choice)),
+                  );
+                }).toList(),
               ),
             ],
           ],

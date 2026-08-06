@@ -1,0 +1,7 @@
+analyzer:
+  exclude:
+    - "youtube_explode_dart/**"
+    - "build/**"
+    - "functions/node_modules/**"
+    - "**/*.g.dart"
+    - "**/*.freezed.dart"

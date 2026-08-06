@@ -1,10 +1,13 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_database/firebase_database.dart';
+import 'package:flutter/foundation.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/utils/app_utils.dart';
 import '../models/models.dart';
 import '../services/auth_service.dart';
 
 class SpaceRepository {
+
   final FirebaseFirestore _db;
   final AuthService _auth;
 
@@ -35,6 +38,7 @@ class SpaceRepository {
     });
 
     await _auth.saveSpaceId(docRef.id);
+    await ensureRtdbMembership(docRef.id);
 
     final snap = await docRef.get();
     return SpaceModel.fromFirestore(snap);
@@ -43,36 +47,35 @@ class SpaceRepository {
   // ─── Join ──────────────────────────────────────────────────────────────────
 
   Future<SpaceModel?> joinSpace({required String inviteCode}) async {
-    // Ensure we have a valid anonymous auth session before doing any Firestore work
-    final deviceId = await _auth.getOrCreateDeviceId();
     final upper = inviteCode.trim().toUpperCase();
 
-    QuerySnapshot query;
-    try {
-      query = await _spaces
-          .where('inviteCode', isEqualTo: upper)
-          .limit(1)
-          .get();
-    } catch (e) {
-      // Re-throw with a clearer message so the UI can surface it
-      throw Exception('Failed to search for invite code. Check your internet connection. ($e)');
+    final query = await _spaces.where('inviteCode', isEqualTo: upper).limit(1).get();
+    if (query.docs.isEmpty) {
+      throw Exception('Code not found. Check and try again.');
     }
 
-    if (query.docs.isEmpty) return null;
+    final docRef = query.docs.first.reference;
+    final deviceId = await _auth.getOrCreateDeviceId();
 
-    final doc = query.docs.first;
-    final space = SpaceModel.fromFirestore(doc);
+    await _db.runTransaction((tx) async {
+      final snap = await tx.get(docRef);
+      if (!snap.exists) throw Exception('Space not found');
+      
+      final data = snap.data() as Map<String, dynamic>? ?? {};
+      final members = List<String>.from(data['memberDeviceIds'] ?? []);
+      
+      if (!members.contains(deviceId)) {
+        if (data['type'] == 'couple' && members.length >= 2) {
+          throw Exception('This couple space is already full.');
+        }
+        members.add(deviceId);
+        tx.update(docRef, {'memberDeviceIds': members});
+      }
+    });
 
-    // Already a member? Re-join silently (idempotent)
-    if (!space.memberDeviceIds.contains(deviceId)) {
-      await doc.reference.update({
-        'memberDeviceIds': FieldValue.arrayUnion([deviceId]),
-      });
-    }
-
-    await _auth.saveSpaceId(doc.id);
-    final updated = await doc.reference.get();
-    return SpaceModel.fromFirestore(updated);
+    await ensureRtdbMembership(docRef.id);
+    await _auth.saveSpaceId(docRef.id);
+    return getSpace(docRef.id);
   }
 
   // ─── Read ──────────────────────────────────────────────────────────────────
@@ -88,6 +91,19 @@ class SpaceRepository {
     final snap = await _spaces.doc(spaceId).get();
     if (!snap.exists) return null;
     return SpaceModel.fromFirestore(snap);
+  }
+
+  Future<void> ensureRtdbMembership(String spaceId) async {
+    if (spaceId.isEmpty) return;
+    try {
+      final deviceId = await _auth.getOrCreateDeviceId();
+      if (deviceId.isNotEmpty) {
+        final rtdb = FirebaseDatabase.instance;
+        await rtdb.ref('spaceMembers/$spaceId/$deviceId').set(true);
+      }
+    } catch (e) {
+      debugPrint('[SpaceRepository] RTDB membership sync failed: $e');
+    }
   }
 
   Future<void> updateSpaceName(String spaceId, String name) async {
@@ -110,13 +126,49 @@ class SpaceRepository {
     final yesterdayKey =
         '${yesterday.year}-${yesterday.month.toString().padLeft(2, '0')}-${yesterday.day.toString().padLeft(2, '0')}';
 
-    final newStreak = space.lastAnsweredDate == yesterdayKey
-        ? space.currentStreak + 1
-        : 1; // Reset if chain broken
-
-    await _spaces.doc(spaceId).update({
-      'currentStreak': newStreak,
-      'lastAnsweredDate': today,
-    });
+    if (space.lastAnsweredDate == yesterdayKey) {
+      // Consecutive day — increment streak
+      await _spaces.doc(spaceId).update({
+        'currentStreak': space.currentStreak + 1,
+        'lastAnsweredDate': today,
+        'lostStreak': 0, // Clear any pending lost streak
+        'streakReviveAdsWatched': 0,
+      });
+    } else {
+      // Chain broken — save the lost streak so user can revive it
+      final brokenStreak = space.currentStreak;
+      await _spaces.doc(spaceId).update({
+        'currentStreak': 1, // Start fresh at 1 (they answered today)
+        'lastAnsweredDate': today,
+        'lostStreak': brokenStreak > 1 ? brokenStreak : 0,
+        'streakReviveAdsWatched': 0,
+      });
+    }
   }
+
+  /// Called when a user watches a rewarded ad to recover a broken streak.
+  /// If all 3 ads are watched, the lost streak is fully restored.
+  Future<void> watchStreakReviveAd(String spaceId) async {
+    final snap = await _spaces.doc(spaceId).get();
+    if (!snap.exists) return;
+    final space = SpaceModel.fromFirestore(snap);
+    if (space.lostStreak <= 0) return;
+
+    final adsWatched = space.streakReviveAdsWatched + 1;
+
+    if (adsWatched >= 3) {
+      // All 3 ads watched — restore the lost streak!
+      await _spaces.doc(spaceId).update({
+        'currentStreak': space.lostStreak,
+        'lostStreak': 0,
+        'streakReviveAdsWatched': 0,
+      });
+    } else {
+      await _spaces.doc(spaceId).update({
+        'streakReviveAdsWatched': adsWatched,
+      });
+    }
+  }
+
 }
+

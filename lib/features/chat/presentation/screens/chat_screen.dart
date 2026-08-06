@@ -31,6 +31,7 @@ class ChatScreen extends ConsumerStatefulWidget {
   final List<String> memberIds;
   final String deviceId;
   final String deviceName;
+  final String spaceType;
 
   const ChatScreen({
     super.key,
@@ -38,6 +39,7 @@ class ChatScreen extends ConsumerStatefulWidget {
     required this.memberIds,
     required this.deviceId,
     required this.deviceName,
+    this.spaceType = 'couple',
   });
 
   @override
@@ -45,6 +47,8 @@ class ChatScreen extends ConsumerStatefulWidget {
 }
 
 class _ChatScreenState extends ConsumerState<ChatScreen> {
+  String get _label => widget.spaceType == 'friends' ? 'Bestie' : 'Partner';
+
   final _controller = TextEditingController();
   final _scrollController = ScrollController();
   late final ChatRepository _repo;
@@ -175,6 +179,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             _ChatAppBar(
               memberCount: widget.memberIds.length,
               partnerPresent: partnerPresent,
+              label: _label,
               onCallTap: () async {
                 final manager = ref.read(callManagerProvider);
                 if (manager.currentState != CallManagerState.idle) return;
@@ -214,6 +219,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         horizontal: 16, vertical: 12),
                     // Pre-render 1200px above and below the viewport.
                     // Eliminates white-flash jank when the user scrolls fast.
+                    // ignore: deprecated_member_use
                     cacheExtent: 1200,
                     // Premium iOS-style bounce physics.
                     physics: const BouncingScrollPhysics(
@@ -266,10 +272,12 @@ class _ChatAppBar extends StatelessWidget {
   final int memberCount;
   final bool partnerPresent;
   final VoidCallback? onCallTap;
+  final String label;
 
   const _ChatAppBar({
     required this.memberCount,
     required this.partnerPresent,
+    required this.label,
     this.onCallTap,
   });
 
@@ -336,7 +344,7 @@ class _ChatAppBar extends StatelessWidget {
                 ),
               ),
               Text(
-                memberCount > 1 ? 'Your private space' : 'Waiting for partner...',
+                memberCount > 1 ? 'Your private space' : 'Waiting for $label...',
                 style: TextStyle(
                   color: Colors.white.withValues(alpha: 0.85),
                   fontSize: 12,
@@ -368,6 +376,7 @@ class _ChatAppBar extends StatelessWidget {
           // Online status chip
           SyncStatusChip(
             state: partnerPresent ? SyncState.inSync : SyncState.partnerLeft,
+            awayColor: Colors.white,
           ),
         ],
       ),

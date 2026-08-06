@@ -4,6 +4,7 @@ class AppConstants {
   static const String dailyAnswersCollection  = 'dailyAnswers';
   static const String moodsCollection         = 'moods';
   static const String questionsCollection     = 'questions';
+  static const String questionsFriendsCollection = 'questions_friends';
   static const String wyrSessionsCollection   = 'wyrSessions';
   static const String fcmPingsCollection      = 'fcmPings'; // partner mood pings
 

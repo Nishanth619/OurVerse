@@ -16,7 +16,6 @@ import 'package:flutter_callkit_incoming/entities/entities.dart';
 import '../../core/constants/app_constants.dart';
 import 'auth_service.dart';
 
-
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp();
@@ -29,8 +28,9 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   if (type == 'call' && spaceId != null) {
     final name = callerName ?? 'Partner';
     final encodedName = Uri.encodeComponent(name);
-    final avatarUrl = 'https://ui-avatars.com/api/?name=$encodedName&background=E8647A&color=fff&rounded=true&size=200';
-    
+    final avatarUrl =
+        'https://ui-avatars.com/api/?name=$encodedName&background=E8647A&color=fff&rounded=true&size=200';
+
     final params = CallKitParams(
       id: spaceId,
       nameCaller: name,
@@ -82,15 +82,16 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
     // This fires when the app is killed or backgrounded on Android 14+.
     final emoji = data['emoji'] ?? '';
     final title = data['title'] ?? 'Your partner updated their mood $emoji';
-    final body = data['body'] ?? 'Open OurVerse to see how they are feeling today 💞';
+    final body =
+        data['body'] ?? 'Open OurVerse to see how they are feeling today 💞';
 
     final plugin = FlutterLocalNotificationsPlugin();
     const android = AndroidInitializationSettings('@mipmap/ic_launcher');
     await plugin.initialize(const InitializationSettings(android: android));
 
     // Ensure the channel exists in this background isolate too
-    final androidImpl = plugin
-        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+    final androidImpl = plugin.resolvePlatformSpecificImplementation<
+        AndroidFlutterLocalNotificationsPlugin>();
     await androidImpl?.createNotificationChannel(
       AndroidNotificationChannel(
         AppConstants.notifPingChannelId,
@@ -142,9 +143,8 @@ class NotificationService {
     const settings = InitializationSettings(android: android);
     await _plugin.initialize(settings);
 
-    final androidImpl = _plugin
-        .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>();
+    final androidImpl = _plugin.resolvePlatformSpecificImplementation<
+        AndroidFlutterLocalNotificationsPlugin>();
 
     // Daily reminder channel
     await androidImpl?.createNotificationChannel(
@@ -178,8 +178,10 @@ class NotificationService {
       final type = message.data['type'];
       if (type == 'mood_ping') {
         final emoji = message.data['emoji'] ?? '';
-        final title = message.data['title'] ?? 'Your partner updated their mood $emoji';
-        final body = message.data['body'] ?? 'Open OurVerse to see how they are feeling today 💞';
+        final title =
+            message.data['title'] ?? 'Your partner updated their mood $emoji';
+        final body = message.data['body'] ??
+            'Open OurVerse to see how they are feeling today 💞';
         await showMoodPing(emoji, title: title, body: body);
       }
     });
@@ -221,9 +223,9 @@ class NotificationService {
             .collection('deviceTokens')
             .doc(deviceId)
             .set(
-              {'fcmToken': token, 'updatedAt': FieldValue.serverTimestamp()},
-              SetOptions(merge: true),
-            );
+          {'fcmToken': token, 'updatedAt': FieldValue.serverTimestamp()},
+          SetOptions(merge: true),
+        );
       }
     } catch (e) {
       print('Error saving FCM token: $e');
@@ -236,9 +238,9 @@ class NotificationService {
             .collection('deviceTokens')
             .doc(deviceId)
             .set(
-              {'fcmToken': newToken, 'updatedAt': FieldValue.serverTimestamp()},
-              SetOptions(merge: true),
-            );
+          {'fcmToken': newToken, 'updatedAt': FieldValue.serverTimestamp()},
+          SetOptions(merge: true),
+        );
       } catch (_) {}
     });
 
@@ -270,7 +272,7 @@ class NotificationService {
   static Future<void> setMoodPingsEnabled(bool value) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(AppConstants.moodPingsEnabledKey, value);
-    
+
     // Also update this preference in Firestore so the sender knows NOT to ping Vercel
     final auth = AuthService();
     final deviceId = await auth.getOrCreateDeviceId();
@@ -361,8 +363,12 @@ class NotificationService {
 
   /// Calls the Vercel backend to send a true OS-level push notification
   /// to the partner's device when you update your mood.
-  static Future<void> pingPartnerViaVercel(String emoji, String partnerDeviceId) async {
-    const vercelUrl = 'https://closerbackend-1.vercel.app/api/ping';
+  static Future<void> pingPartnerViaVercel(
+    String emoji,
+    String partnerDeviceId, {
+    required String spaceId,
+  }) async {
+    const vercelUrl = 'https://closerbackend-1.vercel.app/api/mood_ping';
     final idToken = await _getIdToken();
     if (idToken == null) {
       debugPrint('[NotificationService] Skipping mood ping — no auth token');
@@ -378,6 +384,7 @@ class NotificationService {
         body: jsonEncode({
           'emoji': emoji,
           'partnerDeviceId': partnerDeviceId,
+          'spaceId': spaceId,
         }),
       );
     } catch (e) {
@@ -406,13 +413,15 @@ class NotificationService {
         }),
       );
     } catch (e) {
-      debugPrint('[NotificationService] Failed to ping Vercel flash backend: $e');
+      debugPrint(
+          '[NotificationService] Failed to ping Vercel flash backend: $e');
     }
   }
 
   /// Fires an immediate high-priority notification with vibration locally
   /// when the partner updates their mood emoji (if app is running/backgrounded).
-  static Future<void> showMoodPing(String emoji, {String? title, String? body}) async {
+  static Future<void> showMoodPing(String emoji,
+      {String? title, String? body}) async {
     if (!await isMoodPingsEnabled()) return;
 
     if (!_initialized) await init();
@@ -469,7 +478,8 @@ class NotificationService {
     const url = 'https://closerbackend-1.vercel.app/api/end_call_ping';
     final idToken = await _getIdToken();
     if (idToken == null) {
-      debugPrint('[NotificationService] Skipping end-call ping — no auth token');
+      debugPrint(
+          '[NotificationService] Skipping end-call ping — no auth token');
       return;
     }
     try {
@@ -485,7 +495,8 @@ class NotificationService {
         }),
       );
     } catch (e) {
-      debugPrint('[NotificationService] Failed to ping partner for end call: $e');
+      debugPrint(
+          '[NotificationService] Failed to ping partner for end call: $e');
     }
   }
 
@@ -511,7 +522,8 @@ class NotificationService {
         }),
       );
     } catch (e) {
-      debugPrint('[NotificationService] Failed to ping partner for chat message: $e');
+      debugPrint(
+          '[NotificationService] Failed to ping partner for chat message: $e');
     }
   }
 }

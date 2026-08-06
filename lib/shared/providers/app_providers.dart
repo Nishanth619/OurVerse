@@ -13,14 +13,18 @@ import '../../features/chat/data/chat_repository.dart';
 import '../../features/chat/data/chat_message.dart';
 import '../data/presence_repository.dart';
 
-export '../../features/games/data/wyr_questions.dart' show wyrQuestionsProvider, WyrEntry;
-export '../../features/games/data/doodle_repository.dart' show DoodleRepository, DoodlePoint;
+export '../../features/games/data/wyr_questions.dart'
+    show wyrQuestionsProvider, WyrEntry;
+export '../../features/games/data/doodle_repository.dart'
+    show DoodleRepository, DoodlePoint;
 export '../../features/chat/data/chat_repository.dart' show ChatRepository;
 export '../../features/chat/data/chat_message.dart' show ChatMessage;
 export '../data/presence_repository.dart' show PresenceRepository;
-export '../../features/games/data/word_hunt_repository.dart' show WordHuntRepository;
+export '../../features/games/data/word_hunt_repository.dart'
+    show WordHuntRepository;
 export '../../features/games/data/word_hunt_model.dart' show WordHuntModel;
-export '../../features/games/data/flash_repository.dart' show FlashRepository, FlashDay;
+export '../../features/games/data/flash_repository.dart'
+    show FlashRepository, FlashDay;
 
 // ─── Services ──────────────────────────────────────────────────────────────
 
@@ -29,8 +33,7 @@ final spaceRepositoryProvider =
     Provider<SpaceRepository>((ref) => SpaceRepository());
 final questionRepositoryProvider =
     Provider<QuestionRepository>((ref) => QuestionRepository());
-final wyrRepositoryProvider =
-    Provider<WyrRepository>((ref) => WyrRepository());
+final wyrRepositoryProvider = Provider<WyrRepository>((ref) => WyrRepository());
 
 // ─── Device Identity ───────────────────────────────────────────────────────
 
@@ -60,7 +63,11 @@ final activeSpaceIdProvider = StateProvider<String?>((ref) => null);
 final spaceStreamProvider = StreamProvider<SpaceModel?>((ref) {
   final spaceId = ref.watch(activeSpaceIdProvider);
   if (spaceId == null) return Stream.value(null);
-  return ref.watch(spaceRepositoryProvider).watchSpace(spaceId);
+  final repo = ref.watch(spaceRepositoryProvider);
+  return (() async* {
+    await repo.ensureRtdbMembership(spaceId);
+    yield* repo.watchSpace(spaceId);
+  })();
 });
 
 // ─── Presence ──────────────────────────────────────────────────────────────
@@ -68,11 +75,11 @@ final spaceStreamProvider = StreamProvider<SpaceModel?>((ref) {
 final presenceRepositoryProvider =
     Provider<PresenceRepository>((ref) => PresenceRepository());
 
-final featurePresenceProvider =
-    StreamProvider.family<bool, ({String spaceId, String featureId, String partnerId})>(
-        (ref, args) {
+final featurePresenceProvider = StreamProvider.family<bool,
+    ({String spaceId, String featureId, String partnerId})>((ref, args) {
   final repo = ref.watch(presenceRepositoryProvider);
-  return repo.watchPartnerPresence(args.spaceId, args.featureId, args.partnerId);
+  return repo.watchPartnerPresence(
+      args.spaceId, args.featureId, args.partnerId);
 });
 
 // ─── Date Key ──────────────────────────────────────────────────────────────
@@ -91,7 +98,10 @@ final todayQuestionProvider = FutureProvider<QuestionModel?>((ref) async {
   // Rebuild when the date key changes (midnight rollover)
   ref.watch(todayKeyProvider);
   if (spaceId == null) return null;
-  return ref.read(questionRepositoryProvider).getTodayQuestion(spaceId);
+  // Read the active space to determine couple vs friends
+  final spaceAsync = ref.watch(spaceStreamProvider);
+  final spaceType = spaceAsync.valueOrNull?.type ?? 'couple';
+  return ref.read(questionRepositoryProvider).getTodayQuestion(spaceId, spaceType: spaceType);
 });
 
 /// Live stream of today's answer doc (for waiting/reveal state).

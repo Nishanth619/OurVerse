@@ -11,6 +11,7 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 import '../../data/vibe_models.dart';
 import '../../data/vibe_repository.dart';
 import '../../providers/vibe_providers.dart';
+import '../widgets/streaming_timer_gate.dart';
 
 // ─── Floating Emoji Model ─────────────────────────────────────────────────────
 
@@ -434,22 +435,28 @@ class _YoutubeSyncScreenState extends ConsumerState<YoutubeSyncScreen>
     final size = MediaQuery.of(context).size;
     final videoHeight = size.width * 9 / 16;
 
-    return Scaffold(
+    return StreamingTimerGate(
+      label: 'Watch Together',
+      child: Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
         leading: IconButton(
           icon: Icon(Icons.arrow_back_ios_new_rounded,
-              color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7), size: 20),
+              color: Colors.white.withValues(alpha: 0.7), size: 20),
           onPressed: () => Navigator.of(context).pop(),
         ),
-        title: Text(
-          'Watch Together',
-          style: GoogleFonts.inter(
-            color: Theme.of(context).colorScheme.onSurface,
-            fontWeight: FontWeight.w700,
-            fontSize: 18,
+        title: FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.centerLeft,
+          child: Text(
+            'Watch Together',
+            style: GoogleFonts.inter(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+              fontSize: 18,
+            ),
           ),
         ),
         actions: [
@@ -472,7 +479,7 @@ class _YoutubeSyncScreenState extends ConsumerState<YoutubeSyncScreen>
                 Text(
                   _loadedVideoId.isNotEmpty ? 'In Sync' : 'No video',
                   style: GoogleFonts.inter(
-                    color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.54),
+                    color: Colors.white.withValues(alpha: 0.54),
                     fontSize: 12,
                     fontWeight: FontWeight.w500,
                   ),
@@ -511,7 +518,7 @@ class _YoutubeSyncScreenState extends ConsumerState<YoutubeSyncScreen>
                     child: Text(
                       _currentTitle,
                       style: GoogleFonts.inter(
-                        color: Theme.of(context).colorScheme.onSurface,
+                        color: Colors.white,
                         fontSize: 15,
                         fontWeight: FontWeight.w600,
                       ),
@@ -532,9 +539,9 @@ class _YoutubeSyncScreenState extends ConsumerState<YoutubeSyncScreen>
                         overlayShape:
                             const RoundSliderOverlayShape(overlayRadius: 14),
                         activeTrackColor: const Color(0xFFFF0000),
-                        inactiveTrackColor: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.12),
-                        thumbColor: Theme.of(context).colorScheme.onSurface,
-                        overlayColor: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.12),
+                        inactiveTrackColor: Colors.white.withValues(alpha: 0.12),
+                        thumbColor: Colors.white,
+                        overlayColor: Colors.white.withValues(alpha: 0.12),
                       ),
                       child: Slider(
                         value: _durationSec > 0
@@ -557,12 +564,12 @@ class _YoutubeSyncScreenState extends ConsumerState<YoutubeSyncScreen>
                         Text(
                           _formatDuration(_positionSec),
                           style: GoogleFonts.inter(
-                              color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.54), fontSize: 11),
+                              color: Colors.white.withValues(alpha: 0.54), fontSize: 11),
                         ),
                         Text(
                           _formatDuration(_durationSec),
                           style: GoogleFonts.inter(
-                              color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.54), fontSize: 11),
+                              color: Colors.white.withValues(alpha: 0.54), fontSize: 11),
                         ),
                       ],
                     ),
@@ -610,7 +617,7 @@ class _YoutubeSyncScreenState extends ConsumerState<YoutubeSyncScreen>
                             ? 'Paste a YouTube link to watch together'
                             : 'Load a different video',
                         style: GoogleFonts.inter(
-                          color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7),
+                          color: Colors.white.withValues(alpha: 0.7),
                           fontSize: 13,
                           fontWeight: FontWeight.w500,
                         ),
@@ -622,13 +629,13 @@ class _YoutubeSyncScreenState extends ConsumerState<YoutubeSyncScreen>
                             child: TextField(
                               controller: _urlController,
                               style: GoogleFonts.inter(
-                                  color: Theme.of(context).colorScheme.onSurface, fontSize: 14),
+                                  color: Colors.white, fontSize: 14),
                               decoration: InputDecoration(
                                 hintText: 'https://youtube.com/watch?v=...',
                                 hintStyle: GoogleFonts.inter(
-                                    color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.3), fontSize: 13),
+                                    color: Colors.white.withValues(alpha: 0.3), fontSize: 13),
                                 filled: true,
-                                fillColor: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.07),
+                                fillColor: Colors.white.withValues(alpha: 0.07),
                                 border: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(14),
                                   borderSide: BorderSide.none,
@@ -636,7 +643,7 @@ class _YoutubeSyncScreenState extends ConsumerState<YoutubeSyncScreen>
                                 contentPadding: const EdgeInsets.symmetric(
                                     horizontal: 16, vertical: 14),
                                 prefixIcon: Icon(Icons.link_rounded,
-                                    color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.38), size: 20),
+                                    color: Colors.white.withValues(alpha: 0.38), size: 20),
                               ),
                               onSubmitted: (_) => _loadVideoFromUrl(),
                             ),
@@ -649,7 +656,7 @@ class _YoutubeSyncScreenState extends ConsumerState<YoutubeSyncScreen>
                               padding: const EdgeInsets.all(14),
                               decoration: BoxDecoration(
                                 color: _loadingVideo
-                                    ? Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.12)
+                                    ? Colors.white.withValues(alpha: 0.12)
                                     : const Color(0xFFFF0000),
                                 borderRadius: BorderRadius.circular(14),
                               ),
@@ -659,7 +666,7 @@ class _YoutubeSyncScreenState extends ConsumerState<YoutubeSyncScreen>
                                       height: 20,
                                       child: CircularProgressIndicator(
                                         strokeWidth: 2,
-                                        color: Theme.of(context).colorScheme.onSurface,
+                                        color: Colors.white,
                                       ),
                                     )
                                   : Icon(Icons.play_circle_outline_rounded,
@@ -691,7 +698,7 @@ class _YoutubeSyncScreenState extends ConsumerState<YoutubeSyncScreen>
                       Text(
                         'React together',
                         style: GoogleFonts.inter(
-                          color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.54),
+                          color: Colors.white.withValues(alpha: 0.54),
                           fontSize: 12,
                           fontWeight: FontWeight.w500,
                           letterSpacing: 0.6,
@@ -707,10 +714,10 @@ class _YoutubeSyncScreenState extends ConsumerState<YoutubeSyncScreen>
                             child: Container(
                               padding: const EdgeInsets.all(10),
                               decoration: BoxDecoration(
-                                color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.07),
+                                color: Colors.white.withValues(alpha: 0.07),
                                 borderRadius: BorderRadius.circular(14),
                                 border: Border.all(
-                                    color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.12), width: 1),
+                                    color: Colors.white.withValues(alpha: 0.12), width: 1),
                               ),
                               child: Text(emoji,
                                   style: TextStyle(fontSize: 24)),
@@ -742,8 +749,10 @@ class _YoutubeSyncScreenState extends ConsumerState<YoutubeSyncScreen>
           ),
         ],
       ),
-    );
+      ), // end Scaffold
+    ); // end StreamingTimerGate
   }
+
 
   String _formatDuration(double seconds) {
     final dur = Duration(seconds: seconds.round());
@@ -806,13 +815,13 @@ class _PlayerBox extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Icon(Icons.smart_display_outlined,
-                      color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.24), size: 64),
+                      color: Colors.white.withValues(alpha: 0.24), size: 64),
                   SizedBox(height: 12),
                   Text(
                     'Paste a YouTube link below\nto start watching together',
                     textAlign: TextAlign.center,
                     style: GoogleFonts.inter(
-                        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.38), fontSize: 14, height: 1.5),
+                        color: Colors.white.withValues(alpha: 0.38), fontSize: 14, height: 1.5),
                   ),
                 ],
               ),

@@ -80,7 +80,13 @@ class _CreateSpaceScreenState extends ConsumerState<CreateSpaceScreen> {
     }
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Create a Space')),
+      appBar: AppBar(
+        title: const FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.centerLeft,
+          child: Text('Create a Space'),
+        ),
+      ),
       body: SafeArea(
         child: CustomScrollView(
           slivers: [
@@ -149,7 +155,13 @@ class _CreateSpaceScreenState extends ConsumerState<CreateSpaceScreen> {
 
   Widget _buildCodeReveal(ThemeData theme) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Your Space is Ready!')),
+      appBar: AppBar(
+        title: const FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.centerLeft,
+          child: Text('Your Space is Ready!'),
+        ),
+      ),
       body: SafeArea(
         child: CustomScrollView(
           slivers: [

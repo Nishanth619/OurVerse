@@ -44,12 +44,14 @@ class UnoScreen extends ConsumerStatefulWidget {
   final String spaceId;
   final List<String> memberIds;
   final String deviceId;
+  final String spaceType;
 
   const UnoScreen({
     super.key,
     required this.spaceId,
     required this.memberIds,
     required this.deviceId,
+    this.spaceType = 'couple',
   });
 
   @override
@@ -68,6 +70,8 @@ class _UnoScreenState extends ConsumerState<UnoScreen>
   String get _myId => widget.deviceId;
   String get _partnerId =>
       widget.memberIds.firstWhere((id) => id != _myId, orElse: () => '');
+
+  String get _label => widget.spaceType == 'friends' ? 'Bestie' : 'Partner';
 
   @override
   void initState() {
@@ -350,7 +354,7 @@ class _UnoScreenState extends ConsumerState<UnoScreen>
             Text(
               partnerPresent
                   ? '🟢 Partner is here — let\'s go!'
-                  : '⏳ Waiting for partner to open UNO...',
+                  : '⏳ Waiting for $_label to open UNO...',
               style: TextStyle(
                 color: partnerPresent ? Colors.greenAccent : Colors.white54,
                 fontSize: 15,
@@ -526,6 +530,7 @@ class _UnoScreenState extends ConsumerState<UnoScreen>
             opponentHandCount: partnerHand.length,
             onRematch: () => _startGame(rematch: true),
             animation: _winAnim,
+            label: _label,
           ),
       ],
     );
@@ -1297,12 +1302,14 @@ class _WinOverlay extends StatelessWidget {
   final int opponentHandCount;
   final VoidCallback onRematch;
   final AnimationController animation;
+  final String label;
 
   const _WinOverlay({
     required this.iWon,
     required this.opponentHandCount,
     required this.onRematch,
     required this.animation,
+    required this.label,
   });
 
   @override
@@ -1337,7 +1344,7 @@ class _WinOverlay extends StatelessWidget {
                   Text(
                     iWon
                         ? 'Partner had $opponentHandCount card${opponentHandCount == 1 ? '' : 's'} left!'
-                        : 'Partner emptied their hand!',
+                        : '$label emptied their hand!',
                     style: const TextStyle(
                       color: Colors.white70,
                       fontSize: 16,

@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:closer/features/call/providers/call_providers.dart';
 import 'package:closer/features/call/call_manager.dart';
+import '../../../vibe/presentation/widgets/streaming_timer_gate.dart';
 
 /// Full-screen active call UI — shown once both peers are connected.
 class CallScreen extends ConsumerStatefulWidget {
@@ -78,8 +79,10 @@ class _CallScreenState extends ConsumerState<CallScreen>
 
     final isConnected = callState == CallManagerState.connected;
 
-    return Scaffold(
-      backgroundColor: Colors.black,
+    return StreamingTimerGate(
+      label: 'Go Live',
+      child: Scaffold(
+        backgroundColor: Colors.black,
       body: Container(
         width: double.infinity,
         height: double.infinity,
@@ -213,6 +216,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
             ],
           ),
         ),
+      ),
       ),
     );
   }

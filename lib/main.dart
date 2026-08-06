@@ -16,6 +16,7 @@ import 'shared/providers/app_providers.dart';
 import 'features/call/presentation/widgets/incoming_call_handler.dart';
 import 'features/call/providers/call_providers.dart';
 import 'core/ads/ad_service.dart';
+import 'core/services/subscription_service.dart';
 
 void main() async {
   debugPrint('🚀 [STARTUP] main() called');
@@ -137,8 +138,9 @@ Future<void> _initBackgroundServices() async {
     deviceId = await AuthService().getOrCreateDeviceId();
   } catch (_) {}
 
-  // ── Ads Init ──────────────────────────────────────────────────────────────
+  // ── Ads & Subscription Init ───────────────────────────────────────────────
   await AdService.instance.init();
+  await SubscriptionService.instance.init();
 
   // Notification service — can fail on some Android OEMs / in release builds
   try {

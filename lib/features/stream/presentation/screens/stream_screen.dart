@@ -1,37 +1,34 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:agora_rtc_engine/agora_rtc_engine.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:http/http.dart' as http;
 import 'package:permission_handler/permission_handler.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
-import '../../../../core/theme/app_theme.dart';
-import '../../../../data/services/notification_service.dart';
+
+import '../../data/stream_model.dart';
 import '../../data/stream_repository.dart';
+import '../../providers/stream_providers.dart';
+import '../../../vibe/presentation/widgets/streaming_timer_gate.dart';
 
+const _bg = Color(0xFF1E1F22);
+const _card = Color(0xFF2B2D31);
+const _controlBar = Color(0xFF232428);
+const _blurple = Color(0xFF5865F2);
+const _green = Color(0xFF57F287);
+const _red = Color(0xFFED4245);
+const _textPrimary = Color(0xFFFFFFFF);
+const _textSecondary = Color(0xFFB5BAC1);
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Agora App ID — console.agora.io (Testing mode = no token needed)
-// ─────────────────────────────────────────────────────────────────────────────
-const _agoraAppId = '9e7e99c6c83b46b1b8d7c6ac5fd10d9c';
-
-enum _ShareMode { camera, screen }
-
-/// Full streaming screen — supports both camera and screen share.
-/// The host can toggle between modes live without ending the stream.
-///
-/// [isHost]      true  = broadcasting (start capture + publish)
-///               false = viewing partner's stream (subscribe only)
-/// [streamType]  initial mode: 'camera' | 'screen'
 class StreamScreen extends ConsumerStatefulWidget {
   final String spaceId;
   final String deviceId;
   final String partnerId;
-  final bool isHost;
-  final String streamType;
+  final bool isHost; // kept for backward compat
+  final String streamType; // kept for backward compat
 
   const StreamScreen({
     super.key,
@@ -39,7 +36,7 @@ class StreamScreen extends ConsumerStatefulWidget {
     required this.deviceId,
     required this.partnerId,
     required this.isHost,
-    this.streamType = 'camera',
+    required this.streamType,
   });
 
   @override
@@ -47,708 +44,648 @@ class StreamScreen extends ConsumerStatefulWidget {
 }
 
 class _StreamScreenState extends ConsumerState<StreamScreen> {
-  late final RtcEngine _engine;
-  late final StreamRepository _repo;
+  static RtcEngineEx? _engine;
+  static RtcConnection? _screenShareConnection; // secondary connection for screen share
 
   bool _engineReady = false;
   bool _isMuted = false;
-  bool _isCameraOff = false;
-  bool _isFrontCamera = true;
-  int? _remoteUid;
-  bool _streamEnded = false;
-  bool _cleaned = false; // guard against double-cleanup
+  bool _isCameraOn = false;
+  bool _isScreenSharing = false;
+  bool _isScreenShareExpanded = false;
+  bool _isCameraExpanded = false;
+  int? _expandedUid;
 
-  // Current share mode — can be switched live
-  late _ShareMode _shareMode;
+  final Map<int, bool> _remoteUsers = {}; // uid -> hasCameraOn
+  int? _remoteScreenUid;
 
-  // Agora UID derived from deviceId hash (unique per device, stable)
   int get _myUid => widget.deviceId.hashCode.abs() % 100000 + 1;
+  int get _myScreenUid => _myUid + 100000;
+
+  late final StreamRepository _repo;
+  late StreamSubscription<List<RoomMember>> _membersSub;
+  List<RoomMember> _members = [];
+
+  final String _appId = '9e7e99c6c83b46b1b8d7c6ac5fd10d9c';
+  final String _tokenUrl = 'https://closerbackend-1.vercel.app/api/agora_token';
 
   @override
   void initState() {
     super.initState();
-    _shareMode = widget.streamType == 'screen' ? _ShareMode.screen : _ShareMode.camera;
-    _repo = StreamRepository();
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-    // Keep screen awake for BOTH host (sharing) and viewer (watching)
+    _repo = ref.read(streamRepositoryProvider);
     WakelockPlus.enable();
+
+    // 1. Join Firebase Room
+    _repo.joinRoom(
+      spaceId: widget.spaceId,
+      deviceId: widget.deviceId,
+      displayName: 'Me', // displayName shown in room member list
+    );
+
+    // Watch room members
+    _membersSub = _repo.watchRoomMembers(widget.spaceId).listen((members) {
+      if (mounted) setState(() => _members = members);
+    });
+
+    // Notify state provider
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(screenShareStateProvider.notifier).joinRoom(
+        spaceId: widget.spaceId,
+        deviceId: widget.deviceId,
+        partnerId: widget.partnerId,
+      );
+    });
+
+    // Send notification (removed as sendPushNotification isn't implemented)
+
     _initAgora();
   }
 
   @override
   void dispose() {
-    // Use unawaited fire-and-forget — dispose() is synchronous.
-    // The _cleaned guard prevents double-release if _endStream() was called first.
-    if (!_cleaned) _cleanup();
-    // Release wake lock when leaving the stream screen
-    WakelockPlus.disable();
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    _membersSub.cancel();
+    // Do not dispose Agora here. We want it to persist if user navigates away.
+    // Agora cleanup happens ONLY on explicit disconnect.
     super.dispose();
   }
 
-  // ─── Agora init ───────────────────────────────────────────────────────────
-
-  Future<void> _initAgora() async {
-    // Host needs camera + mic; viewer only needs mic
-    if (widget.isHost) {
-      await [Permission.camera, Permission.microphone].request();
-    } else {
-      await Permission.microphone.request();
-    }
-
-    _engine = createAgoraRtcEngine();
-    await _engine.initialize(RtcEngineContext(appId: _agoraAppId));
-
-    _engine.registerEventHandler(RtcEngineEventHandler(
-      onJoinChannelSuccess: (connection, elapsed) {
-        debugPrint('[Stream] Joined channel: ${connection.channelId}');
-        if (mounted) setState(() {});
-      },
-      onUserJoined: (connection, remoteUid, elapsed) {
-        debugPrint('[Stream] Partner joined uid=$remoteUid');
-        if (mounted) setState(() => _remoteUid = remoteUid);
-      },
-      onUserOffline: (connection, remoteUid, reason) {
-        debugPrint('[Stream] Partner left uid=$remoteUid reason=$reason');
-        if (mounted) setState(() => _remoteUid = null);
-        if (!widget.isHost) _handleStreamEnded();
-      },
-      // Fires when the remote video track changes state — catches screen share
-      // becoming available even when the host joined AFTER the viewer.
-      onRemoteVideoStateChanged: (connection, remoteUid, state, reason, elapsed) {
-        debugPrint('[Stream] Remote video state uid=$remoteUid state=$state');
-        if ((state == RemoteVideoState.remoteVideoStateDecoding ||
-                state == RemoteVideoState.remoteVideoStateStarting) &&
-            mounted) {
-          setState(() => _remoteUid = remoteUid);
-        }
-      },
-      onError: (err, msg) => debugPrint('[Stream] Error $err: $msg'),
-    ));
-
-    // Enable video for both roles
-    await _engine.enableVideo();
-
-    // Viewer does not broadcast — disable local video/audio capture to save battery
-    if (!widget.isHost) {
-      await _engine.enableLocalVideo(false);
-      await _engine.enableLocalAudio(false);
-    }
-
-    // Set role
-    await _engine.setClientRole(
-      role: widget.isHost
-          ? ClientRoleType.clientRoleBroadcaster
-          : ClientRoleType.clientRoleAudience,
-    );
-
-    // Fetch token from our Vercel backend server
-    String token = '';
+  Future<String> _fetchToken(int uid) async {
     try {
-      final user = FirebaseAuth.instance.currentUser;
-      final idToken = await user?.getIdToken();
-      if (idToken != null) {
-        final response = await http.post(
-          Uri.parse('https://closerbackend-1.vercel.app/api/agora_token'),
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer $idToken',
-          },
-          body: jsonEncode({
-            'channelName': widget.spaceId,
-            'uid': _myUid,
-          }),
-        );
-        if (response.statusCode == 200) {
-          final data = jsonDecode(response.body);
-          token = data['token'] ?? '';
-          debugPrint('[Stream] Got token from server: ${token.substring(0, 10)}...');
-        } else {
-          debugPrint('[Stream] Token server returned ${response.statusCode}: ${response.body}');
-        }
+      final response = await http.get(Uri.parse('$_tokenUrl?channelName=${widget.spaceId}&uid=$uid'));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return data['token'] as String;
       }
     } catch (e) {
-      debugPrint('[Stream] Failed to fetch token, continuing without: $e');
+      debugPrint('Failed to fetch token: $e');
+    }
+    return '';
+  }
+
+  Future<void> _initAgora() async {
+    await [Permission.microphone, Permission.camera].request();
+
+    if (_engine == null) {
+      _engine = createAgoraRtcEngineEx();
+      await _engine!.initialize(RtcEngineContext(appId: _appId));
+
+      _engine!.registerEventHandler(
+        RtcEngineEventHandler(
+          onJoinChannelSuccess: (RtcConnection connection, int elapsed) {
+            debugPrint("local user ${connection.localUid} joined");
+          },
+          onUserJoined: (RtcConnection connection, int remoteUid, int elapsed) {
+            debugPrint("remote user $remoteUid joined");
+            setState(() {
+              if (remoteUid > 100000) {
+                _remoteScreenUid = remoteUid;
+              } else {
+                _remoteUsers[remoteUid] = false;
+              }
+            });
+          },
+          onUserOffline: (RtcConnection connection, int remoteUid, UserOfflineReasonType reason) {
+            debugPrint("remote user $remoteUid left");
+            setState(() {
+              if (remoteUid > 100000) {
+                if (_remoteScreenUid == remoteUid) {
+                  _remoteScreenUid = null;
+                  _isScreenShareExpanded = false;
+                }
+              } else {
+                _remoteUsers.remove(remoteUid);
+                if (_expandedUid == remoteUid) {
+                  _isCameraExpanded = false;
+                  _expandedUid = null;
+                }
+              }
+            });
+          },
+          onRemoteVideoStateChanged: (RtcConnection connection, int remoteUid, RemoteVideoState state, RemoteVideoStateReason reason, int elapsed) {
+            if (remoteUid < 100000) {
+              setState(() {
+                _remoteUsers[remoteUid] = (state == RemoteVideoState.remoteVideoStateStarting || state == RemoteVideoState.remoteVideoStateDecoding);
+              });
+            }
+          },
+        ),
+      );
+
+      await _engine!.enableAudio();
+      await _engine!.enableVideo();
+      await _engine!.setClientRole(role: ClientRoleType.clientRoleBroadcaster);
     }
 
-    await _engine.joinChannel(
+    final token = await _fetchToken(_myUid);
+    await _engine!.joinChannel(
       token: token,
       channelId: widget.spaceId,
       uid: _myUid,
-      options: ChannelMediaOptions(
-        channelProfile: ChannelProfileType.channelProfileLiveBroadcasting,
-        clientRoleType: widget.isHost
-            ? ClientRoleType.clientRoleBroadcaster
-            : ClientRoleType.clientRoleAudience,
-        // HOST: join with camera track off initially — we switch to screen
-        // AFTER capture is started to avoid the partner seeing a black screen.
-        publishCameraTrack: widget.isHost && _shareMode == _ShareMode.camera,
-        publishMicrophoneTrack: widget.isHost,
-        publishScreenTrack: false,
-        publishScreenCaptureVideo: false,
-        publishScreenCaptureAudio: false,
-        // VIEWER: MUST explicitly subscribe to video and audio.
-        // In live broadcasting profile, audience does NOT auto-subscribe —
-        // without these flags the partner sees a permanent black screen.
-        autoSubscribeVideo: !widget.isHost,
-        autoSubscribeAudio: !widget.isHost,
-      ),
-    );
-
-    // Make UI ready
-    if (mounted) setState(() => _engineReady = true);
-
-    // Now start the appropriate capture mode
-    if (widget.isHost && _shareMode == _ShareMode.screen) {
-      // 1. Start screen capture FIRST (so there's actual content to stream)
-      await _startScreenCapture();
-      // 2. Small wait for the capture pipeline to warm up
-      await Future.delayed(const Duration(milliseconds: 500));
-      // 3. NOW tell Agora to publish the screen track (not before!)
-      await _engine.updateChannelMediaOptions(const ChannelMediaOptions(
+      options: const ChannelMediaOptions(
+        publishMicrophoneTrack: true,
         publishCameraTrack: false,
-        publishMicrophoneTrack: true,
-        publishScreenTrack: true,
-        publishScreenCaptureVideo: true,
-        publishScreenCaptureAudio: true,
-      ));
-      // 4. Show persistent notification so host knows screen is being shared
-      await _showScreenShareNotification();
-    } else if (widget.isHost && _shareMode == _ShareMode.camera) {
-      await _engine.startPreview();
-    }
-
-    // Signal to Firebase that stream is live
-    if (widget.isHost) {
-      await _repo.startStream(
-        spaceId: widget.spaceId,
-        hostId: widget.deviceId,
-        streamType: widget.streamType,
-      );
-
-      // Push notification to partner
-      try {
-        await NotificationService.pingPartnerViaVercel('📺', widget.partnerId);
-      } catch (_) {}
-    }
-  }
-
-  // ─── Screen capture ───────────────────────────────────────────────────────
-
-  Future<void> _startScreenCapture() async {
-    await _engine.startScreenCapture(
-      const ScreenCaptureParameters2(
-        captureAudio: true,
-        captureVideo: true,
-        videoParams: ScreenVideoParameters(
-          dimensions: VideoDimensions(width: 1280, height: 720),
-          frameRate: 15,
-          bitrate: 1000,
-        ),
-        audioParams: ScreenAudioParameters(
-          sampleRate: 16000,
-          channels: 2,
-          captureSignalVolume: 100,
-        ),
-      ),
-    );
-  }
-
-  Future<void> _stopScreenCapture() async {
-    await _engine.stopScreenCapture();
-  }
-
-  // ─── Toggle between camera and screen share ────────────────────────────────
-
-  Future<void> _toggleShareMode() async {
-    if (_shareMode == _ShareMode.camera) {
-      // Switch TO screen share
-      await _engine.stopPreview();
-      await _startScreenCapture();
-      await _engine.updateChannelMediaOptions(const ChannelMediaOptions(
-        publishCameraTrack: false,
-        publishMicrophoneTrack: true,
-        publishScreenTrack: true,
-        publishScreenCaptureVideo: true,
-        publishScreenCaptureAudio: true,
-      ));
-      setState(() => _shareMode = _ShareMode.screen);
-
-      // Update Firebase so partner sees the mode change
-      await _repo.startStream(
-        spaceId: widget.spaceId,
-        hostId: widget.deviceId,
-        streamType: 'screen',
-      );
-      // Show persistent notification — host needs to know they're sharing
-      await _showScreenShareNotification();
-    } else {
-      // Switch TO camera
-      await _stopScreenCapture();
-      await _engine.startPreview();
-      await _engine.updateChannelMediaOptions(const ChannelMediaOptions(
-        publishCameraTrack: true,
-        publishMicrophoneTrack: true,
-        publishScreenTrack: false,
-        publishScreenCaptureVideo: false,
-        publishScreenCaptureAudio: false,
-      ));
-      setState(() => _shareMode = _ShareMode.camera);
-      // Cancel the sharing notification when back on camera
-      await _cancelScreenShareNotification();
-
-      await _repo.startStream(
-        spaceId: widget.spaceId,
-        hostId: widget.deviceId,
-        streamType: 'camera',
-      );
-    }
-  }
-
-  // ─── Cleanup ──────────────────────────────────────────────────────────────
-
-  // ─── Persistent "Sharing" notification for host ──────────────────────────
-
-  static const _shareNotifId = 9901;
-
-  Future<void> _showScreenShareNotification() async {
-    final plugin = FlutterLocalNotificationsPlugin();
-    const androidInit = AndroidInitializationSettings('@drawable/ic_launcher');
-    await plugin.initialize(const InitializationSettings(android: androidInit));
-
-    final androidImpl = plugin
-        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
-    await androidImpl?.createNotificationChannel(
-      const AndroidNotificationChannel(
-        'stream_share_active',
-        'Screen Sharing Active',
-        description: 'Shown while you are sharing your screen',
-        importance: Importance.low,
-        playSound: false,
-        enableVibration: false,
+        clientRoleType: ClientRoleType.clientRoleBroadcaster,
       ),
     );
 
-    await plugin.show(
-      _shareNotifId,
-      '📺 You are sharing your screen',
-      'Your partner is watching your screen live. Tap to return to OurVerse.',
-      const NotificationDetails(
-        android: AndroidNotificationDetails(
-          'stream_share_active',
-          'Screen Sharing Active',
-          importance: Importance.low,
-          priority: Priority.low,
-          ongoing: true,           // Cannot be dismissed by swipe
-          autoCancel: false,
-          icon: '@drawable/ic_launcher',
-          color: Color(0xFFE8647A),
-          showWhen: true,
-          playSound: false,
-          enableVibration: false,
-        ),
-      ),
-    );
-  }
-
-  Future<void> _cancelScreenShareNotification() async {
-    final plugin = FlutterLocalNotificationsPlugin();
-    await plugin.cancel(_shareNotifId);
-  }
-
-  // ─── Cleanup ──────────────────────────────────────────────────────────────
-
-  Future<void> _cleanup() async {
-    if (_cleaned) return; // prevent double-release
-    _cleaned = true;
-    if (widget.isHost) {
-      if (_shareMode == _ShareMode.screen) {
-        await _engine.stopScreenCapture();
-        await _cancelScreenShareNotification();
-      }
-      await _repo.endStream(widget.spaceId);
-    }
-    await _engine.leaveChannel();
-    await _engine.release();
-  }
-
-  void _handleStreamEnded() {
-    if (_streamEnded) return;
-    _streamEnded = true;
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('Stream ended by your partner'),
-          backgroundColor: AppTheme.primary,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        ),
-      );
-      Future.delayed(const Duration(seconds: 2), () {
-        if (mounted) Navigator.of(context).pop();
+      setState(() {
+        _engineReady = true;
       });
     }
   }
 
-  // ─── Controls ─────────────────────────────────────────────────────────────
-
-  Future<void> _toggleMute() async {
-    await _engine.muteLocalAudioStream(!_isMuted);
+  Future<void> _toggleMic() async {
+    if (_engine == null) return;
     setState(() => _isMuted = !_isMuted);
+    await _engine!.muteLocalAudioStream(_isMuted);
+    await _repo.updateMemberState(spaceId: widget.spaceId, deviceId: widget.deviceId, isMicOn: !_isMuted);
   }
 
   Future<void> _toggleCamera() async {
-    await _engine.muteLocalVideoStream(!_isCameraOff);
-    setState(() => _isCameraOff = !_isCameraOff);
+    if (_engine == null) return;
+    if (!_isCameraOn) {
+      await _engine!.startPreview();
+      await _engine!.updateChannelMediaOptions(const ChannelMediaOptions(publishCameraTrack: true));
+      await _repo.updateMemberState(spaceId: widget.spaceId, deviceId: widget.deviceId, isCameraOn: true);
+    } else {
+      await _engine!.stopPreview();
+      await _engine!.updateChannelMediaOptions(const ChannelMediaOptions(publishCameraTrack: false));
+      await _repo.updateMemberState(spaceId: widget.spaceId, deviceId: widget.deviceId, isCameraOn: false);
+    }
+    setState(() => _isCameraOn = !_isCameraOn);
   }
 
-  Future<void> _switchCamera() async {
-    await _engine.switchCamera();
-    setState(() => _isFrontCamera = !_isFrontCamera);
+  Future<void> _startScreenShare() async {
+    if (_engine == null) return;
+    String screenToken = await _fetchToken(_myScreenUid);
+
+    await _engine!.startScreenCapture(const ScreenCaptureParameters2(captureVideo: true, captureAudio: true));
+    await Future.delayed(const Duration(milliseconds: 500));
+
+    _screenShareConnection = RtcConnection(channelId: widget.spaceId, localUid: _myScreenUid);
+    await _engine!.joinChannelEx(
+      token: screenToken,
+      connection: _screenShareConnection!,
+      options: const ChannelMediaOptions(
+        publishScreenTrack: true,
+        publishScreenCaptureVideo: true,
+        publishScreenCaptureAudio: true,
+        publishCameraTrack: false,
+        publishMicrophoneTrack: false,
+        autoSubscribeVideo: false,
+        autoSubscribeAudio: false,
+      ),
+    );
+
+    setState(() => _isScreenSharing = true);
+    await _repo.updateMemberState(spaceId: widget.spaceId, deviceId: widget.deviceId, isScreenSharing: true);
+    ref.read(screenShareStateProvider.notifier).startSharing(
+      spaceId: widget.spaceId, deviceId: widget.deviceId, partnerId: widget.partnerId,
+    );
+    await _showScreenShareNotification();
   }
 
-  Future<void> _endStream() async {
-    await _cleanup(); // _cleaned flag ensures dispose() won't double-release
+  Future<void> _stopScreenShare() async {
+    if (_engine == null) return;
+    await _engine!.stopScreenCapture();
+    if (_screenShareConnection != null) {
+      await _engine!.leaveChannelEx(connection: _screenShareConnection!);
+      _screenShareConnection = null;
+    }
+    setState(() {
+      _isScreenSharing = false;
+      _isScreenShareExpanded = false;
+    });
+    await _repo.updateMemberState(spaceId: widget.spaceId, deviceId: widget.deviceId, isScreenSharing: false);
+    ref.read(screenShareStateProvider.notifier).stopSharing();
+    await _cancelScreenShareNotification();
+  }
+
+  Future<void> _disconnect() async {
+    if (_isScreenSharing) {
+      await _stopScreenShare();
+    }
+    await _repo.leaveRoom(spaceId: widget.spaceId, deviceId: widget.deviceId);
+    
+    if (_engine != null) {
+      await _engine!.leaveChannel();
+      await _engine!.release();
+      _engine = null;
+    }
+    
+    ref.read(screenShareStateProvider.notifier).leaveRoom();
+    WakelockPlus.disable();
     if (mounted) Navigator.of(context).pop();
   }
 
-  // ─── Build ────────────────────────────────────────────────────────────────
+  Future<void> _showScreenShareNotification() async {
+    final plugin = FlutterLocalNotificationsPlugin();
+    const androidDetails = AndroidNotificationDetails(
+      'screen_share',
+      'Screen Sharing',
+      channelDescription: 'Ongoing screen share notification',
+      importance: Importance.low,
+      priority: Priority.low,
+      ongoing: true,
+      autoCancel: false,
+      icon: '@mipmap/ic_launcher',
+    );
+    const iosDetails = DarwinNotificationDetails();
+    const details = NotificationDetails(android: androidDetails, iOS: iosDetails);
+    await plugin.show(9901, 'Screen Share Active', 'You are sharing your screen', details);
+  }
+
+  Future<void> _cancelScreenShareNotification() async {
+    final plugin = FlutterLocalNotificationsPlugin();
+    await plugin.cancel(9901);
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: SizedBox.expand(
-        child: Stack(
-          children: [
-          // ── Video / Screen area ──────────────────────────────────────────
-          if (_engineReady) _buildVideoArea() else _buildLoadingState(),
-
-          // ── Top bar ─────────────────────────────────────────────────────
-          _buildTopBar(),
-
-          // ── Bottom controls ──────────────────────────────────────────────
-          if (widget.isHost)
-            _buildHostControls()
-          else if (_remoteUid != null)
-            _buildViewerControls(),
-
-          // ── Viewer: waiting for host ─────────────────────────────────────
-          if (!widget.isHost && _remoteUid == null && _engineReady)
-            _buildWaitingForHost(),
-        ],
-      ),
-    ),
-    );
-  }
-
-  // ─── Video area ───────────────────────────────────────────────────────────
-
-  Widget _buildVideoArea() {
-    if (widget.isHost) {
-      if (_shareMode == _ShareMode.screen) {
-        // While screen sharing, show an overlay indicator —
-        // the host's own screen IS what's being streamed.
-        return const SizedBox.shrink();
-      }
-      // Camera mode: show local preview
-      return SizedBox.expand(
-        child: _isCameraOff
-            ? const ColoredBox(
-                color: Color(0xFF1A1A2E),
-                child: Center(
-                  child: Icon(Icons.videocam_off, color: Colors.white38, size: 64),
-                ),
-              )
-            : AgoraVideoView(
-                controller: VideoViewController(
-                  rtcEngine: _engine,
-                  canvas: const VideoCanvas(uid: 0), // 0 = local camera
-                ),
-              ),
+    if (!_engineReady) {
+      return const Scaffold(
+        backgroundColor: _bg,
+        body: Center(child: CircularProgressIndicator(color: _blurple)),
       );
     }
 
-    // Viewer side — remote stream (camera OR screen, same remote UID)
-    if (_remoteUid == null) return const SizedBox.shrink();
-    return SizedBox.expand(
-      child: AgoraVideoView(
-        controller: VideoViewController.remote(
-          rtcEngine: _engine,
-          canvas: VideoCanvas(uid: _remoteUid),
-          connection: RtcConnection(channelId: widget.spaceId),
+    return StreamingTimerGate(
+      label: 'Private Room',
+      child: Scaffold(
+        backgroundColor: _bg,
+        body: Stack(
+          children: [
+            Column(
+              children: [
+                _buildTopBar(),
+                Expanded(child: _buildMainArea()),
+                _buildBottomControlBar(),
+              ],
+            ),
+            if (_isScreenShareExpanded && _remoteScreenUid != null) _buildFullscreenScreenShare(),
+            if (_isCameraExpanded && _expandedUid != null) _buildFullscreenCamera(),
+          ],
         ),
       ),
     );
   }
 
-  Widget _buildLoadingState() {
-    return const Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
+  Widget _buildTopBar() {
+    return Container(
+      color: _card,
+      height: 64, // Made slightly taller to fit safe area better
+      padding: EdgeInsets.only(top: MediaQuery.of(context).padding.top, left: 8, right: 16),
+      child: Row(
         children: [
-          CircularProgressIndicator(color: AppTheme.primary),
-          SizedBox(height: 16),
-          Text('Connecting...', style: TextStyle(color: Colors.white70, fontSize: 16)),
+          IconButton(
+            icon: const Icon(Icons.arrow_back, color: _textPrimary),
+            onPressed: () => Navigator.of(context).pop(),
+          ),
+          Expanded(
+            child: Text(
+              'Private Room',
+              style: GoogleFonts.inter(
+                color: _textPrimary,
+                fontWeight: FontWeight.w600,
+                fontSize: 16,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ),
+          Row(
+            children: [
+              const Icon(Icons.group, color: _textSecondary, size: 16),
+              const SizedBox(width: 4),
+              Text(
+                '${_members.length}',
+                style: GoogleFonts.inter(color: _textSecondary, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
         ],
       ),
     );
   }
 
-  // ─── Top bar ─────────────────────────────────────────────────────────────
+  Widget _buildMainArea() {
+    bool hasScreenShare = _members.any((m) => m.isScreenSharing) && _remoteScreenUid != null;
+    
+    return Column(
+      children: [
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: _buildMemberGrid(),
+          ),
+        ),
+        if (hasScreenShare) ...[
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+            child: _buildScreenShareCard(),
+          ),
+        ],
+      ],
+    );
+  }
 
-  Widget _buildTopBar() {
-    final modeLabel = _shareMode == _ShareMode.screen ? 'Screen Share' : 'Camera';
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        child: Row(
+  Widget _buildMemberGrid() {
+    // Merge local and remote members
+    List<Widget> tiles = [];
+    
+    // Add Self
+    tiles.add(_buildMemberTile(
+      uid: 0,
+      displayName: 'You',
+      isCameraOn: _isCameraOn,
+      isMicOn: !_isMuted,
+      isScreenSharing: _isScreenSharing,
+    ));
+
+    // Add Remotes based on _remoteUsers
+    for (final remoteUid in _remoteUsers.keys) {
+      // Find matching member in RTDB based on uid if possible, else fallback
+      // Since we don't have uid <-> deviceId mapping perfectly in Agora, we just use generic text
+      RoomMember? matchingMember;
+      if (_members.length > 1) {
+         matchingMember = _members.firstWhere((m) => m.deviceId != widget.deviceId, orElse: () => RoomMember(deviceId: '', displayName: 'Partner', joinedAt: 0));
+      }
+      tiles.add(_buildMemberTile(
+        uid: remoteUid,
+        displayName: matchingMember?.displayName ?? 'Partner',
+        isCameraOn: _remoteUsers[remoteUid] ?? false,
+        isMicOn: matchingMember?.isMicOn ?? true,
+        isScreenSharing: matchingMember?.isScreenSharing ?? false,
+      ));
+    }
+
+    return GridView.count(
+      crossAxisCount: 2,
+      crossAxisSpacing: 12,
+      mainAxisSpacing: 12,
+      childAspectRatio: 0.75, // Tall rectangles like Discord
+      children: tiles,
+    );
+  }
+
+  Widget _buildMemberTile({
+    required int uid,
+    required String displayName,
+    required bool isCameraOn,
+    required bool isMicOn,
+    required bool isScreenSharing,
+  }) {
+    return GestureDetector(
+      onTap: () {
+        if (isCameraOn) {
+          setState(() {
+            _isCameraExpanded = true;
+            _expandedUid = uid;
+          });
+        }
+      },
+      child: Container(
+        decoration: BoxDecoration(
+          color: _card,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        clipBehavior: Clip.hardEdge,
+        child: Stack(
+          alignment: Alignment.center,
           children: [
-            // LIVE badge
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-              decoration: BoxDecoration(
-                color: Colors.redAccent.shade700,
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Row(
+            if (isCameraOn)
+              SizedBox.expand(
+                child: uid == 0 
+                  ? AgoraVideoView(controller: VideoViewController(rtcEngine: _engine!, canvas: const VideoCanvas(uid: 0)))
+                  : AgoraVideoView(controller: VideoViewController.remote(rtcEngine: _engine!, canvas: VideoCanvas(uid: uid), connection: RtcConnection(channelId: widget.spaceId))),
+              )
+            else
+              Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Container(
-                    width: 8, height: 8,
-                    decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
+                    width: 64,
+                    height: 64,
+                    decoration: const BoxDecoration(
+                      color: _bg,
+                      shape: BoxShape.circle,
+                    ),
+                    alignment: Alignment.center,
+                    child: Text(
+                      displayName.isNotEmpty ? displayName[0].toUpperCase() : '?',
+                      style: GoogleFonts.inter(fontSize: 24, fontWeight: FontWeight.bold, color: _textPrimary),
+                    ),
                   ),
-                  const SizedBox(width: 6),
-                  const Text('LIVE',
-                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800,
-                          fontSize: 12, letterSpacing: 1)),
                 ],
               ),
-            ),
-            const SizedBox(width: 8),
-            // Mode label
-            if (widget.isHost)
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            
+            Positioned(
+              bottom: 8,
+              left: 8,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
                   color: Colors.black54,
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: Colors.white24),
+                  borderRadius: BorderRadius.circular(12),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(
-                      _shareMode == _ShareMode.screen ? Icons.screen_share : Icons.videocam,
-                      color: Colors.white70, size: 14,
+                      isMicOn ? Icons.mic : Icons.mic_off,
+                      color: isMicOn ? _green : _red,
+                      size: 14,
                     ),
-                    const SizedBox(width: 5),
-                    Text(modeLabel,
-                        style: const TextStyle(color: Colors.white70, fontSize: 12)),
-                  ],
-                ),
-              ),
-            const Spacer(),
-            // End/Leave button
-            GestureDetector(
-              onTap: _endStream,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                decoration: BoxDecoration(
-                  color: Colors.black54,
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: Colors.white24),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.call_end, color: Colors.redAccent, size: 18),
-                    const SizedBox(width: 6),
-                    Text(widget.isHost ? 'End' : 'Leave',
-                        style: const TextStyle(color: Colors.white, fontSize: 14)),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // ─── Host controls ────────────────────────────────────────────────────────
-
-  Widget _buildHostControls() {
-    final isScreenMode = _shareMode == _ShareMode.screen;
-    return Positioned(
-      bottom: 0, left: 0, right: 0,
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(20, 20, 20, 40),
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.bottomCenter,
-            end: Alignment.topCenter,
-            colors: [Colors.black87, Colors.transparent],
-          ),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Screen share active indicator
-            if (isScreenMode)
-              Container(
-                margin: const EdgeInsets.only(bottom: 16),
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.white24),
-                ),
-                child: const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.screen_share, color: Colors.greenAccent, size: 18),
-                    SizedBox(width: 8),
+                    const SizedBox(width: 4),
                     Text(
-                      'Your screen is being shared',
-                      style: TextStyle(color: Colors.white70, fontSize: 13),
+                      displayName,
+                      style: GoogleFonts.inter(color: _textPrimary, fontSize: 12, fontWeight: FontWeight.w500),
                     ),
                   ],
                 ),
               ),
-
-            // Control row
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                _ControlButton(
-                  icon: _isMuted ? Icons.mic_off : Icons.mic,
-                  label: _isMuted ? 'Unmute' : 'Mute',
-                  onTap: _toggleMute,
-                  active: !_isMuted,
-                ),
-                // Camera on/off (only in camera mode)
-                if (!isScreenMode)
-                  _ControlButton(
-                    icon: _isCameraOff ? Icons.videocam_off : Icons.videocam,
-                    label: _isCameraOff ? 'Cam Off' : 'Cam On',
-                    onTap: _toggleCamera,
-                    active: !_isCameraOff,
-                  ),
-                // Flip camera (only in camera mode)
-                if (!isScreenMode)
-                  _ControlButton(
-                    icon: Icons.flip_camera_android,
-                    label: 'Flip',
-                    onTap: _switchCamera,
-                    active: true,
-                  ),
-                // Toggle screen/camera
-                _ControlButton(
-                  icon: isScreenMode ? Icons.videocam : Icons.screen_share,
-                  label: isScreenMode ? 'Camera' : 'Share Screen',
-                  onTap: _toggleShareMode,
-                  active: true,
-                  highlight: !isScreenMode, // highlight "Share Screen" to draw attention
-                ),
-              ],
             ),
+
+            if (isScreenSharing)
+              Positioned(
+                top: 8,
+                right: 8,
+                child: Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                    color: _red,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.monitor, color: _textPrimary, size: 14),
+                ),
+              )
           ],
         ),
       ),
     );
   }
 
-  // ─── Viewer controls (volume indicator etc.) ──────────────────────────────
-
-  Widget _buildViewerControls() {
-    return Positioned(
-      bottom: 0, left: 0, right: 0,
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(20, 16, 20, 36),
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.bottomCenter,
-            end: Alignment.topCenter,
-            colors: [Colors.black87, Colors.transparent],
-          ),
-        ),
-        child: const Center(
-          child: Text(
-            'Watching your partner\'s stream',
-            style: TextStyle(color: Colors.white54, fontSize: 13),
-          ),
-        ),
+  Widget _buildScreenShareCard() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: _card,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: _green, width: 2),
       ),
-    );
-  }
-
-  Widget _buildWaitingForHost() {
-    return const Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
+      child: Row(
         children: [
-          Icon(Icons.live_tv, color: Colors.white38, size: 64),
-          SizedBox(height: 16),
-          Text(
-            'Waiting for your partner\nto start streaming...',
-            textAlign: TextAlign.center,
-            style: TextStyle(color: Colors.white60, fontSize: 16, height: 1.5),
+          const Icon(Icons.monitor, color: _green, size: 28),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Text(
+              'Partner is sharing their screen',
+              style: GoogleFonts.inter(color: _textPrimary, fontWeight: FontWeight.w500),
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              setState(() => _isScreenShareExpanded = true);
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _blurple,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            child: const Text('Watch', style: TextStyle(color: _textPrimary, fontWeight: FontWeight.bold)),
           ),
         ],
       ),
     );
   }
-}
 
-// ─── Control Button ───────────────────────────────────────────────────────────
+  Widget _buildBottomControlBar() {
+    return Container(
+      color: _controlBar,
+      padding: EdgeInsets.only(bottom: MediaQuery.of(context).padding.bottom + 16, top: 16, left: 16, right: 16),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          _buildControlButton(
+            icon: _isMuted ? Icons.mic_off : Icons.mic,
+            label: _isMuted ? 'Unmute' : 'Mute',
+            isActive: !_isMuted,
+            activeColor: _green,
+            inactiveColor: _red, // red for muted
+            onTap: _toggleMic,
+          ),
+          _buildControlButton(
+            icon: Icons.videocam,
+            label: 'Camera',
+            isActive: _isCameraOn,
+            activeColor: _blurple,
+            inactiveColor: _card,
+            onTap: _toggleCamera,
+          ),
+          _buildControlButton(
+            icon: Icons.monitor,
+            label: 'Share',
+            isActive: _isScreenSharing,
+            activeColor: _green,
+            inactiveColor: _card,
+            onTap: _isScreenSharing ? _stopScreenShare : _startScreenShare,
+          ),
+          _buildControlButton(
+            icon: Icons.call_end,
+            label: 'Leave',
+            isActive: true,
+            activeColor: _red, // Always red
+            inactiveColor: _red,
+            onTap: _disconnect,
+          ),
+        ],
+      ),
+    );
+  }
 
-class _ControlButton extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-  final bool active;
-  final bool highlight;
-
-  const _ControlButton({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-    required this.active,
-    this.highlight = false,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final bg = !active
-        ? Colors.red.withValues(alpha: 0.3)
-        : highlight
-            ? AppTheme.primary.withValues(alpha: 0.35)
-            : Colors.white.withValues(alpha: 0.15);
-    final border = !active
-        ? Colors.red.withValues(alpha: 0.5)
-        : highlight
-            ? AppTheme.primary.withValues(alpha: 0.6)
-            : Colors.white24;
-
+  Widget _buildControlButton({
+    required IconData icon,
+    required String label,
+    required bool isActive,
+    required Color activeColor,
+    required Color inactiveColor,
+    required VoidCallback onTap,
+  }) {
     return GestureDetector(
       onTap: onTap,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           Container(
-            width: 60,
-            height: 60,
+            width: 48,
+            height: 48,
             decoration: BoxDecoration(
-              color: bg,
+              color: isActive ? activeColor : inactiveColor,
               shape: BoxShape.circle,
-              border: Border.all(color: border),
             ),
-            child: Icon(icon, color: Colors.white, size: 26),
+            child: Icon(icon, color: _textPrimary),
           ),
           const SizedBox(height: 8),
-          Text(label, style: const TextStyle(color: Colors.white70, fontSize: 11)),
+          Text(
+            label,
+            style: GoogleFonts.inter(color: _textPrimary, fontSize: 12),
+          ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildFullscreenScreenShare() {
+    return Positioned.fill(
+      child: Container(
+        color: Colors.black,
+        child: Stack(
+          children: [
+            SizedBox.expand(
+              child: AgoraVideoView(
+                controller: VideoViewController.remote(
+                  rtcEngine: _engine!,
+                  canvas: VideoCanvas(uid: _remoteScreenUid!),
+                  connection: RtcConnection(channelId: widget.spaceId),
+                ),
+              ),
+            ),
+            Positioned(
+              top: MediaQuery.of(context).padding.top + 16,
+              right: 16,
+              child: IconButton(
+                icon: const Icon(Icons.close, color: Colors.white, size: 32),
+                onPressed: () => setState(() => _isScreenShareExpanded = false),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFullscreenCamera() {
+    return Positioned.fill(
+      child: Container(
+        color: Colors.black,
+        child: Stack(
+          children: [
+            SizedBox.expand(
+              child: _expandedUid == 0
+                ? AgoraVideoView(controller: VideoViewController(rtcEngine: _engine!, canvas: const VideoCanvas(uid: 0)))
+                : AgoraVideoView(controller: VideoViewController.remote(rtcEngine: _engine!, canvas: VideoCanvas(uid: _expandedUid!), connection: RtcConnection(channelId: widget.spaceId))),
+            ),
+            Positioned(
+              top: MediaQuery.of(context).padding.top + 16,
+              right: 16,
+              child: IconButton(
+                icon: const Icon(Icons.close, color: Colors.white, size: 32),
+                onPressed: () => setState(() {
+                  _isCameraExpanded = false;
+                  _expandedUid = null;
+                }),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

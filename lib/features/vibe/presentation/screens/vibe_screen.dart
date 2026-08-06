@@ -11,6 +11,7 @@ import '../../data/vibe_audio_handler.dart';
 import '../../providers/vibe_providers.dart';
 import '../widgets/sync_status_chip.dart';
 import '../widgets/local_song_picker_sheet.dart';
+import '../widgets/streaming_timer_gate.dart';
 import 'song_history_screen.dart';
 
 /// Main Vibe Together screen.
@@ -477,22 +478,28 @@ class _VibeScreenState extends ConsumerState<VibeScreen>
     );
     final _partnerPresent = partnerPresentAsync.valueOrNull ?? false;
 
-    return Scaffold(
+    return StreamingTimerGate(
+      label: 'Vibe Together',
+      child: Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
         backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         elevation: 0,
-        iconTheme: IconThemeData(color: Theme.of(context).colorScheme.onSurface),
-        title: Text(
-          'Vibe Together \u{1F3B5}',
-          style: GoogleFonts.outfit(
-            color: Theme.of(context).colorScheme.onSurface,
-            fontWeight: FontWeight.w700,
+        iconTheme: IconThemeData(color: Colors.white),
+        title: FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.centerLeft,
+          child: Text(
+            'Vibe Together \u{1F3B5}',
+            style: GoogleFonts.outfit(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ),
         actions: [
           IconButton(
-            icon: Icon(Icons.history_rounded, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7)),
+            icon: Icon(Icons.history_rounded, color: Colors.white.withValues(alpha: 0.7)),
             tooltip: 'Recently played',
             onPressed: () => Navigator.push(
               context,
@@ -503,7 +510,7 @@ class _VibeScreenState extends ConsumerState<VibeScreen>
           ),
           if (_currentSession != null)
             IconButton(
-              icon: Icon(Icons.stop_circle_outlined, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7)),
+              icon: Icon(Icons.stop_circle_outlined, color: Colors.white.withValues(alpha: 0.7)),
               tooltip: 'End Session',
               onPressed: () => ref.read(vibeRepositoryProvider).clearSession(widget.spaceId),
             ),
@@ -547,7 +554,8 @@ class _VibeScreenState extends ConsumerState<VibeScreen>
                   onSendReaction: _sendReaction,
                   onAddToQueue: _addToQueue,
                 ),
-    );
+      ),
+    ); // end StreamingTimerGate
   }
 }
 
@@ -585,7 +593,7 @@ class _NoSessionView extends StatelessWidget {
               Text(
                 'Nothing playing yet',
                 style: GoogleFonts.outfit(
-                  color: Theme.of(context).colorScheme.onSurface,
+                  color: Colors.white,
                   fontSize: 22,
                   fontWeight: FontWeight.w700,
                 ),
@@ -594,7 +602,7 @@ class _NoSessionView extends StatelessWidget {
               Text(
                 'Pick a song and listen together 🎶',
                 style: TextStyle(
-                    color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5), fontSize: 15),
+                    color: Colors.white.withValues(alpha: 0.5), fontSize: 15),
               ),
               SizedBox(height: 32),
               // Pick local song button — primary action
@@ -725,7 +733,7 @@ class _PlayerView extends StatelessWidget {
               Text(
                 session.videoTitle,
                 style: GoogleFonts.outfit(
-                  color: Theme.of(context).colorScheme.onSurface,
+                  color: Colors.white,
                   fontWeight: FontWeight.w700,
                   fontSize: 20,
                 ),
@@ -837,8 +845,8 @@ class _PlayerView extends StatelessWidget {
               SliderTheme(
                 data: SliderThemeData(
                   activeTrackColor: const Color(0xFFB388FF),
-                  inactiveTrackColor: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.12),
-                  thumbColor: Theme.of(context).colorScheme.onSurface,
+                  inactiveTrackColor: Colors.white.withValues(alpha: 0.12),
+                  thumbColor: Colors.white,
                   overlayColor: const Color(0xFFB388FF).withValues(alpha: 0.2),
                   trackHeight: 4,
                 ),
@@ -860,10 +868,10 @@ class _PlayerView extends StatelessWidget {
                         ? (seekValue * dur).toInt()
                         : pos),
                         style: TextStyle(
-                            color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6), fontSize: 12)),
+                            color: Colors.white.withValues(alpha: 0.6), fontSize: 12)),
                     Text(_fmtMs(dur),
                         style: TextStyle(
-                            color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6), fontSize: 12)),
+                            color: Colors.white.withValues(alpha: 0.6), fontSize: 12)),
                   ],
                 ),
               ),
@@ -877,7 +885,7 @@ class _PlayerView extends StatelessWidget {
                   // Previous: change song
                   IconButton(
                     icon: Icon(Icons.skip_previous_rounded,
-                        size: 36, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7)),
+                        size: 36, color: Colors.white.withValues(alpha: 0.7)),
                     onPressed: onPickLocalSong,
                     tooltip: 'Change song',
                   ),
@@ -933,8 +941,8 @@ class _PlayerView extends StatelessWidget {
                       Icons.skip_next_rounded,
                       size: 36,
                       color: (queueLoaded && queue.isNotEmpty)
-                          ? Theme.of(context).colorScheme.onSurface
-                          : Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.38),
+                          ? Colors.white
+                          : Colors.white.withValues(alpha: 0.38),
                     ),
                     onPressed: (queueLoaded && queue.isNotEmpty) ? onPlayNext : null,
                     tooltip: 'Next in queue',
@@ -959,10 +967,10 @@ class _PlayerView extends StatelessWidget {
                         width: 44,
                         height: 44,
                         decoration: BoxDecoration(
-                          color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.06),
+                          color: Colors.white.withValues(alpha: 0.06),
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(
-                              color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.1)),
+                              color: Colors.white.withValues(alpha: 0.1)),
                         ),
                         child: Center(
                           child: Text(emoji,
@@ -1045,7 +1053,7 @@ class _QueueSection extends StatelessWidget {
               Text(
                 'Up Next',
                 style: GoogleFonts.outfit(
-                  color: Theme.of(context).colorScheme.onSurface,
+                  color: Colors.white,
                   fontWeight: FontWeight.w700,
                   fontSize: 16,
                 ),
@@ -1066,7 +1074,7 @@ class _QueueSection extends StatelessWidget {
               child: Text(
                 'Queue is empty — add songs!',
                 style: TextStyle(
-                    color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.4),
+                    color: Colors.white.withValues(alpha: 0.4),
                     fontSize: 13),
               ),
             )
@@ -1086,9 +1094,9 @@ class _QueueSection extends StatelessWidget {
                             errorBuilder: (_, __, ___) => Container(
                                 width: 48,
                                 height: 36,
-                                color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.12),
+                                color: Colors.white.withValues(alpha: 0.12),
                                 child: Icon(Icons.music_note,
-                                    color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.54), size: 18)),
+                                    color: Colors.white.withValues(alpha: 0.54), size: 18)),
                           ),
                         ),
                         SizedBox(width: 10),
@@ -1096,7 +1104,7 @@ class _QueueSection extends StatelessWidget {
                           child: Text(
                             item.title,
                             style: TextStyle(
-                                color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7), fontSize: 13),
+                                color: Colors.white.withValues(alpha: 0.7), fontSize: 13),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),

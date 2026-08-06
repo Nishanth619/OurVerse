@@ -24,12 +24,14 @@ class BingoScreen extends ConsumerStatefulWidget {
   final String spaceId;
   final List<String> memberIds;
   final String deviceId;
+  final String spaceType;
 
   const BingoScreen({
     super.key,
     required this.spaceId,
     required this.memberIds,
     required this.deviceId,
+    this.spaceType = 'couple',
   });
 
   @override
@@ -38,6 +40,8 @@ class BingoScreen extends ConsumerStatefulWidget {
 
 class _BingoScreenState extends ConsumerState<BingoScreen>
     with TickerProviderStateMixin {
+  String get _label => widget.spaceType == 'friends' ? 'Bestie' : 'Partner';
+
   late final PresenceRepository _presenceRepo;
   late AnimationController _pulseCtrl;
   late Animation<double> _pulseAnim;
@@ -296,7 +300,7 @@ class _BingoScreenState extends ConsumerState<BingoScreen>
                   ),
                   const SizedBox(height: 16),
                   Text(
-                    isDraw ? "It's a Draw!" : (iWon ? 'BINGO! You Win! 🏆' : 'Partner Won!'),
+                    isDraw ? "It's a Draw!" : (iWon ? 'BINGO! You Win! 🎉' : '$_label Won!'),
                     textAlign: TextAlign.center,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
@@ -386,7 +390,7 @@ class _BingoScreenState extends ConsumerState<BingoScreen>
                   child: Text(
                     isMyTurn
                         ? '👆 Your turn — tap a number!'
-                        : '⏳ Waiting for partner...',
+                        : '⏳ Waiting for $_label...',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     textAlign: TextAlign.center,
@@ -412,7 +416,7 @@ class _BingoScreenState extends ConsumerState<BingoScreen>
                 const SizedBox(width: 12),
                 Expanded(
                     child: _LineMeter(
-                        label: 'Partner',
+                        label: _label,
                         lines: partnerLines,
                         color: const Color(0xFF4FC3F7))),
               ],

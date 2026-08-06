@@ -5,15 +5,16 @@ enum SyncState { inSync, buffering, partnerLeft }
 /// A small pill indicator showing sync / buffering / partner-left status.
 class SyncStatusChip extends StatelessWidget {
   final SyncState state;
+  final Color? awayColor;
 
-  const SyncStatusChip({super.key, required this.state});
+  const SyncStatusChip({super.key, required this.state, this.awayColor});
 
   @override
   Widget build(BuildContext context) {
     final (icon, label, color) = switch (state) {
       SyncState.inSync => (Icons.sync_rounded, 'Sync', const Color(0xFF69F0AE)),
       SyncState.buffering => (Icons.hourglass_top_rounded, 'Wait...', const Color(0xFFFFD740)),
-      SyncState.partnerLeft => (Icons.person_outline, 'Away', const Color(0xFFFF6E6E)),
+      SyncState.partnerLeft => (Icons.person_outline, 'Away', awayColor ?? const Color(0xFFFF6E6E)),
     };
 
     return AnimatedContainer(

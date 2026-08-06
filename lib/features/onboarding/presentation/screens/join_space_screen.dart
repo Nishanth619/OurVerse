@@ -82,7 +82,13 @@ class _JoinSpaceScreenState extends ConsumerState<JoinSpaceScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Scaffold(
-      appBar: AppBar(title: const Text('Join a Space')),
+      appBar: AppBar(
+        title: const FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.centerLeft,
+          child: Text('Join a Space'),
+        ),
+      ),
       body: SafeArea(
         child: CustomScrollView(
           slivers: [

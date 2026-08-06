@@ -17,12 +17,14 @@ class WordHuntScreen extends ConsumerStatefulWidget {
   final String spaceId;
   final List<String> memberIds;
   final String deviceId;
+  final String spaceType;
 
   const WordHuntScreen({
     super.key,
     required this.spaceId,
     required this.memberIds,
     required this.deviceId,
+    this.spaceType = 'couple',
   });
 
   @override
@@ -75,6 +77,8 @@ class _WordHuntScreenState extends ConsumerState<WordHuntScreen> {
 
   String get _partnerId =>
       widget.memberIds.firstWhere((id) => id != widget.deviceId, orElse: () => '');
+
+  String get _label => widget.spaceType == 'friends' ? 'Bestie' : 'Partner';
 
   @override
   Widget build(BuildContext context) {
@@ -446,7 +450,7 @@ class _WordHuntScreenState extends ConsumerState<WordHuntScreen> {
           const SizedBox(height: 28),
           _WordList(title: 'Your Words', words: session.wordsFound[widget.deviceId] ?? []),
           const SizedBox(height: 16),
-          _WordList(title: "Partner's Words", words: session.wordsFound[_partnerId] ?? []),
+          _WordList(title: "$_label's Words", words: session.wordsFound[_partnerId] ?? []),
         ],
       ),
     );
