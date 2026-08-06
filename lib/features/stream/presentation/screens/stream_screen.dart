@@ -59,7 +59,11 @@ class _StreamScreenState extends ConsumerState<StreamScreen> {
   final Map<int, bool> _remoteUsers = {}; // uid -> hasCameraOn
   int? _remoteScreenUid;
 
-  int get _myUid => widget.deviceId.hashCode.abs() % 100000 + 1;
+
+  // Assign UID 1 to whichever deviceId is lexicographically smaller, UID 2 to the other.
+  // This guarantees both users ALWAYS get different UIDs (never a collision).
+  int get _myUid => widget.deviceId.compareTo(widget.partnerId) < 0 ? 1 : 2;
+  int get _partnerUid => _myUid == 1 ? 2 : 1;
   int get _myScreenUid => _myUid + 100000;
 
   late final StreamRepository _repo;
@@ -392,49 +396,29 @@ class _StreamScreenState extends ConsumerState<StreamScreen> {
   }
 
   Widget _buildMemberGrid() {
-    List<Widget> tiles = [];
-    
-    // Add Self tile always
-    tiles.add(_buildMemberTile(
-      uid: 0,
-      displayName: 'You',
-      isCameraOn: _isCameraOn,
-      isMicOn: !_isMuted,
-      isScreenSharing: _isScreenSharing,
-    ));
+    // Find partner's Firebase state (for mic/camera/screen status badges)
+    final partnerMember = _members.where((m) => m.deviceId != widget.deviceId).firstOrNull;
+    final partnerInRoom = partnerMember != null || _remoteUsers.containsKey(_partnerUid);
 
-    // --- PRIORITY: Use Agora remote UIDs if available ---
-    if (_remoteUsers.isNotEmpty) {
-      for (final remoteUid in _remoteUsers.keys) {
-        RoomMember? matchingMember;
-        if (_members.length > 1) {
-          matchingMember = _members.firstWhere(
-            (m) => m.deviceId != widget.deviceId,
-            orElse: () => RoomMember(deviceId: '', displayName: 'Partner', joinedAt: 0),
-          );
-        }
-        tiles.add(_buildMemberTile(
-          uid: remoteUid,
-          displayName: matchingMember?.displayName ?? 'Partner',
-          isCameraOn: _remoteUsers[remoteUid] ?? false,
-          isMicOn: matchingMember?.isMicOn ?? true,
-          isScreenSharing: matchingMember?.isScreenSharing ?? false,
-        ));
-      }
-    } else {
-      // --- FALLBACK: Show Firebase members even before Agora fires onUserJoined ---
-      // This makes the partner appear immediately after they join the Firebase room.
-      final otherMembers = _members.where((m) => m.deviceId != widget.deviceId).toList();
-      for (final member in otherMembers) {
-        tiles.add(_buildMemberTile(
-          uid: -1, // placeholder uid — no Agora video yet
-          displayName: member.displayName,
-          isCameraOn: member.isCameraOn,
-          isMicOn: member.isMicOn,
-          isScreenSharing: member.isScreenSharing,
-        ));
-      }
-    }
+    final tiles = [
+      // Self tile — always show
+      _buildMemberTile(
+        uid: 0, // 0 = local preview in Agora
+        displayName: 'You',
+        isCameraOn: _isCameraOn,
+        isMicOn: !_isMuted,
+        isScreenSharing: _isScreenSharing,
+      ),
+      // Partner tile — show if they're in Firebase room OR Agora
+      if (partnerInRoom)
+        _buildMemberTile(
+          uid: _partnerUid, // always 1 or 2 — deterministic, no collision
+          displayName: partnerMember?.displayName ?? 'Partner',
+          isCameraOn: partnerMember?.isCameraOn ?? (_remoteUsers[_partnerUid] ?? false),
+          isMicOn: partnerMember?.isMicOn ?? true,
+          isScreenSharing: partnerMember?.isScreenSharing ?? false,
+        ),
+    ];
 
     return GridView.count(
       crossAxisCount: 2,
