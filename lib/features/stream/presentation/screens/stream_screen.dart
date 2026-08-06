@@ -4,6 +4,7 @@ import 'package:agora_rtc_engine/agora_rtc_engine.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:http/http.dart' as http;
 import 'package:permission_handler/permission_handler.dart';
@@ -127,53 +128,55 @@ class _StreamScreenState extends ConsumerState<StreamScreen> {
     if (_engine == null) {
       _engine = createAgoraRtcEngineEx();
       await _engine!.initialize(RtcEngineContext(appId: _appId));
-
-      _engine!.registerEventHandler(
-        RtcEngineEventHandler(
-          onJoinChannelSuccess: (RtcConnection connection, int elapsed) {
-            debugPrint("local user ${connection.localUid} joined");
-          },
-          onUserJoined: (RtcConnection connection, int remoteUid, int elapsed) {
-            debugPrint("remote user $remoteUid joined");
-            setState(() {
-              if (remoteUid > 100000) {
-                _remoteScreenUid = remoteUid;
-              } else {
-                _remoteUsers[remoteUid] = false;
-              }
-            });
-          },
-          onUserOffline: (RtcConnection connection, int remoteUid, UserOfflineReasonType reason) {
-            debugPrint("remote user $remoteUid left");
-            setState(() {
-              if (remoteUid > 100000) {
-                if (_remoteScreenUid == remoteUid) {
-                  _remoteScreenUid = null;
-                  _isScreenShareExpanded = false;
-                }
-              } else {
-                _remoteUsers.remove(remoteUid);
-                if (_expandedUid == remoteUid) {
-                  _isCameraExpanded = false;
-                  _expandedUid = null;
-                }
-              }
-            });
-          },
-          onRemoteVideoStateChanged: (RtcConnection connection, int remoteUid, RemoteVideoState state, RemoteVideoStateReason reason, int elapsed) {
-            if (remoteUid < 100000) {
-              setState(() {
-                _remoteUsers[remoteUid] = (state == RemoteVideoState.remoteVideoStateStarting || state == RemoteVideoState.remoteVideoStateDecoding);
-              });
-            }
-          },
-        ),
-      );
-
-      await _engine!.enableAudio();
-      await _engine!.enableVideo();
-      await _engine!.setClientRole(role: ClientRoleType.clientRoleBroadcaster);
     }
+
+    // Always re-register event handlers (important if engine was reused from a previous session)
+    _engine!.registerEventHandler(
+      RtcEngineEventHandler(
+        onJoinChannelSuccess: (RtcConnection connection, int elapsed) {
+          debugPrint("local user ${connection.localUid} joined");
+          if (mounted) setState(() {});
+        },
+        onUserJoined: (RtcConnection connection, int remoteUid, int elapsed) {
+          debugPrint("remote user $remoteUid joined");
+          if (mounted) setState(() {
+            if (remoteUid > 100000) {
+              _remoteScreenUid = remoteUid;
+            } else {
+              _remoteUsers[remoteUid] = false;
+            }
+          });
+        },
+        onUserOffline: (RtcConnection connection, int remoteUid, UserOfflineReasonType reason) {
+          debugPrint("remote user $remoteUid left");
+          if (mounted) setState(() {
+            if (remoteUid > 100000) {
+              if (_remoteScreenUid == remoteUid) {
+                _remoteScreenUid = null;
+                _isScreenShareExpanded = false;
+              }
+            } else {
+              _remoteUsers.remove(remoteUid);
+              if (_expandedUid == remoteUid) {
+                _isCameraExpanded = false;
+                _expandedUid = null;
+              }
+            }
+          });
+        },
+        onRemoteVideoStateChanged: (RtcConnection connection, int remoteUid, RemoteVideoState state, RemoteVideoStateReason reason, int elapsed) {
+          if (remoteUid < 100000 && mounted) {
+            setState(() {
+              _remoteUsers[remoteUid] = (state == RemoteVideoState.remoteVideoStateStarting || state == RemoteVideoState.remoteVideoStateDecoding);
+            });
+          }
+        },
+      ),
+    );
+
+    await _engine!.enableAudio();
+    await _engine!.enableVideo();
+    await _engine!.setClientRole(role: ClientRoleType.clientRoleBroadcaster);
 
     final token = await _fetchToken(_myUid);
     await _engine!.joinChannel(
@@ -275,7 +278,7 @@ class _StreamScreenState extends ConsumerState<StreamScreen> {
     
     ref.read(screenShareStateProvider.notifier).leaveRoom();
     WakelockPlus.disable();
-    if (mounted) Navigator.of(context).pop();
+    if (mounted) context.pop();
   }
 
   Future<void> _showScreenShareNotification() async {
@@ -389,10 +392,9 @@ class _StreamScreenState extends ConsumerState<StreamScreen> {
   }
 
   Widget _buildMemberGrid() {
-    // Merge local and remote members
     List<Widget> tiles = [];
     
-    // Add Self
+    // Add Self tile always
     tiles.add(_buildMemberTile(
       uid: 0,
       displayName: 'You',
@@ -401,28 +403,44 @@ class _StreamScreenState extends ConsumerState<StreamScreen> {
       isScreenSharing: _isScreenSharing,
     ));
 
-    // Add Remotes based on _remoteUsers
-    for (final remoteUid in _remoteUsers.keys) {
-      // Find matching member in RTDB based on uid if possible, else fallback
-      // Since we don't have uid <-> deviceId mapping perfectly in Agora, we just use generic text
-      RoomMember? matchingMember;
-      if (_members.length > 1) {
-         matchingMember = _members.firstWhere((m) => m.deviceId != widget.deviceId, orElse: () => RoomMember(deviceId: '', displayName: 'Partner', joinedAt: 0));
+    // --- PRIORITY: Use Agora remote UIDs if available ---
+    if (_remoteUsers.isNotEmpty) {
+      for (final remoteUid in _remoteUsers.keys) {
+        RoomMember? matchingMember;
+        if (_members.length > 1) {
+          matchingMember = _members.firstWhere(
+            (m) => m.deviceId != widget.deviceId,
+            orElse: () => RoomMember(deviceId: '', displayName: 'Partner', joinedAt: 0),
+          );
+        }
+        tiles.add(_buildMemberTile(
+          uid: remoteUid,
+          displayName: matchingMember?.displayName ?? 'Partner',
+          isCameraOn: _remoteUsers[remoteUid] ?? false,
+          isMicOn: matchingMember?.isMicOn ?? true,
+          isScreenSharing: matchingMember?.isScreenSharing ?? false,
+        ));
       }
-      tiles.add(_buildMemberTile(
-        uid: remoteUid,
-        displayName: matchingMember?.displayName ?? 'Partner',
-        isCameraOn: _remoteUsers[remoteUid] ?? false,
-        isMicOn: matchingMember?.isMicOn ?? true,
-        isScreenSharing: matchingMember?.isScreenSharing ?? false,
-      ));
+    } else {
+      // --- FALLBACK: Show Firebase members even before Agora fires onUserJoined ---
+      // This makes the partner appear immediately after they join the Firebase room.
+      final otherMembers = _members.where((m) => m.deviceId != widget.deviceId).toList();
+      for (final member in otherMembers) {
+        tiles.add(_buildMemberTile(
+          uid: -1, // placeholder uid — no Agora video yet
+          displayName: member.displayName,
+          isCameraOn: member.isCameraOn,
+          isMicOn: member.isMicOn,
+          isScreenSharing: member.isScreenSharing,
+        ));
+      }
     }
 
     return GridView.count(
       crossAxisCount: 2,
       crossAxisSpacing: 12,
       mainAxisSpacing: 12,
-      childAspectRatio: 0.75, // Tall rectangles like Discord
+      childAspectRatio: 0.75,
       children: tiles,
     );
   }
@@ -452,7 +470,7 @@ class _StreamScreenState extends ConsumerState<StreamScreen> {
         child: Stack(
           alignment: Alignment.center,
           children: [
-            if (isCameraOn)
+            if (isCameraOn && uid >= 0)
               SizedBox.expand(
                 child: uid == 0 
                   ? AgoraVideoView(controller: VideoViewController(rtcEngine: _engine!, canvas: const VideoCanvas(uid: 0)))
