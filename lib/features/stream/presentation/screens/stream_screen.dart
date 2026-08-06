@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:agora_rtc_engine/agora_rtc_engine.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -126,9 +127,24 @@ class _StreamScreenState extends ConsumerState<StreamScreen> {
 
   Future<String> _fetchToken(int uid) async {
     try {
-      final url = '$_tokenUrl?channelName=${widget.spaceId}&uid=$uid';
-      debugPrint('[Stream] Fetching token: $url');
-      final response = await http.get(Uri.parse(url));
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) {
+        debugPrint('[Stream] Token error: user not logged in');
+        return '';
+      }
+      final idToken = await user.getIdToken();
+      debugPrint('[Stream] Fetching token from $_tokenUrl for uid $uid');
+      final response = await http.post(
+        Uri.parse(_tokenUrl),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $idToken',
+        },
+        body: jsonEncode({
+          'channelName': widget.spaceId,
+          'uid': uid,
+        }),
+      );
       debugPrint('[Stream] Token status: ${response.statusCode}');
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
