@@ -83,7 +83,7 @@ class _StreamScreenState extends ConsumerState<StreamScreen> {
     _repo.joinRoom(
       spaceId: widget.spaceId,
       deviceId: widget.deviceId,
-      displayName: 'Me', // displayName shown in room member list
+      displayName: 'You',
     );
 
     // Watch room members
@@ -346,7 +346,7 @@ class _StreamScreenState extends ConsumerState<StreamScreen> {
         children: [
           IconButton(
             icon: const Icon(Icons.arrow_back, color: _textPrimary),
-            onPressed: () => Navigator.of(context).pop(),
+            onPressed: () => context.pop(),
           ),
           Expanded(
             child: Text(
