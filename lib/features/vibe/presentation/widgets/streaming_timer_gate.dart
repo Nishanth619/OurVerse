@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import '../../../../core/ads/ad_service.dart';
 import '../../../../core/services/daily_limits_service.dart';
 
@@ -100,18 +101,20 @@ class _StreamingTimerGateState extends State<StreamingTimerGate> {
 
     return Stack(
       children: [
-        // The actual streaming content
-        IgnorePointer(ignoring: _locked, child: widget.child),
+        // The actual streaming content — always interactive (Leave button must always work)
+        widget.child,
 
         // Timer badge in top-right (always visible while streaming)
         if (!_locked)
           Positioned(
-            top: 12,
+            top: 80, // below the top bar
             right: 12,
             child: _TimerBadge(minutesLeft: _minutesLeft),
           ),
 
         // Lock overlay when limit is reached
+        // The overlay covers the content visually but Leave button is rendered
+        // INSIDE widget.child so it still receives taps through the Scaffold.
         if (_locked)
           Positioned.fill(
             child: _LockOverlay(
@@ -182,40 +185,72 @@ class _LockOverlay extends StatelessWidget {
           end: Alignment.bottomCenter,
         ),
       ),
-      child: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(32),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text('⏰', style: TextStyle(fontSize: 56)),
-              const SizedBox(height: 16),
-              Text(
-                'Daily Free Limit Reached',
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w800,
+      child: SafeArea(
+        child: Stack(
+          children: [
+            // Exit button top-left
+            Positioned(
+              top: 8,
+              left: 8,
+              child: IconButton(
+                icon: const Icon(Icons.close, color: Colors.white, size: 32),
+                onPressed: () {
+                  try {
+                    context.pop();
+                  } catch (_) {
+                    Navigator.of(context).pop();
+                  }
+                },
+              ),
+            ),
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.all(32),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text('⏰', style: TextStyle(fontSize: 56)),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Daily Free Limit Reached',
+                      style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w800,
+                          ),
+                      textAlign: TextAlign.center,
                     ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 10),
-              Text(
-                'You\'ve used your 30 minutes of free $label for today.\nEither partner can watch an ad to add 30 more minutes!',
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.white70, height: 1.5),
-              ),
-              const SizedBox(height: 28),
-              FilledButton.icon(
-                onPressed: onWatchAd,
-                icon: const Icon(Icons.play_circle_outline),
-                label: const Text('Watch Ad — Add 30 Minutes'),
-                style: FilledButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-                  backgroundColor: const Color(0xFF7B2FBE),
+                    const SizedBox(height: 10),
+                    Text(
+                      'You\'ve used your 30 minutes of free $label for today.\nEither partner can watch an ad to add 30 more minutes!',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: Colors.white70, height: 1.5),
+                    ),
+                    const SizedBox(height: 28),
+                    FilledButton.icon(
+                      onPressed: onWatchAd,
+                      icon: const Icon(Icons.play_circle_outline),
+                      label: const Text('Watch Ad — Add 30 Minutes'),
+                      style: FilledButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                        backgroundColor: const Color(0xFF7B2FBE),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    TextButton(
+                      onPressed: () {
+                        try {
+                          context.pop();
+                        } catch (_) {
+                          Navigator.of(context).pop();
+                        }
+                      },
+                      child: const Text('Leave', style: TextStyle(color: Colors.white70, fontSize: 16)),
+                    ),
+                  ],
                 ),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
