@@ -173,6 +173,7 @@ class _StreamScreenState extends ConsumerState<StreamScreen> {
       RtcEngineEventHandler(
         onJoinChannelSuccess: (RtcConnection connection, int elapsed) {
           debugPrint("local user ${connection.localUid} joined");
+          _engine?.setEnableSpeakerphone(_isSpeakerOn); // Enforce current speaker preference
           if (mounted) setState(() {});
         },
         onUserJoined: (RtcConnection connection, int remoteUid, int elapsed) {
@@ -213,7 +214,6 @@ class _StreamScreenState extends ConsumerState<StreamScreen> {
     );
 
     await _engine!.enableAudio();
-    await _engine!.setEnableSpeakerphone(false); // Default to earpiece
     await _engine!.enableVideo();
     await _engine!.setClientRole(role: ClientRoleType.clientRoleBroadcaster);
 
@@ -261,6 +261,10 @@ class _StreamScreenState extends ConsumerState<StreamScreen> {
       await _repo.updateMemberState(spaceId: widget.spaceId, deviceId: widget.deviceId, isCameraOn: false);
     }
     setState(() => _isCameraOn = !_isCameraOn);
+    
+    // Agora automatically switches to speakerphone when video is enabled. 
+    // We must forcefully revert it to our preferred audio route.
+    await _engine!.setEnableSpeakerphone(_isSpeakerOn);
   }
 
   Future<void> _startScreenShare() async {
