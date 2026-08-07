@@ -51,6 +51,7 @@ class _StreamScreenState extends ConsumerState<StreamScreen> {
 
   bool _engineReady = false;
   bool _isMuted = false;
+  bool _isSpeakerOn = false;
   bool _isCameraOn = false;
   bool _isScreenSharing = false;
   bool _isScreenShareExpanded = false;
@@ -212,6 +213,7 @@ class _StreamScreenState extends ConsumerState<StreamScreen> {
     );
 
     await _engine!.enableAudio();
+    await _engine!.setEnableSpeakerphone(false); // Default to earpiece
     await _engine!.enableVideo();
     await _engine!.setClientRole(role: ClientRoleType.clientRoleBroadcaster);
 
@@ -239,6 +241,12 @@ class _StreamScreenState extends ConsumerState<StreamScreen> {
     setState(() => _isMuted = !_isMuted);
     await _engine!.muteLocalAudioStream(_isMuted);
     await _repo.updateMemberState(spaceId: widget.spaceId, deviceId: widget.deviceId, isMicOn: !_isMuted);
+  }
+
+  Future<void> _toggleSpeaker() async {
+    if (_engine == null) return;
+    setState(() => _isSpeakerOn = !_isSpeakerOn);
+    await _engine!.setEnableSpeakerphone(_isSpeakerOn);
   }
 
   Future<void> _toggleCamera() async {
@@ -606,6 +614,14 @@ class _StreamScreenState extends ConsumerState<StreamScreen> {
             activeColor: _green,
             inactiveColor: _red, // red for muted
             onTap: _toggleMic,
+          ),
+          _buildControlButton(
+            icon: _isSpeakerOn ? Icons.volume_up : Icons.volume_down,
+            label: 'Speaker',
+            isActive: _isSpeakerOn,
+            activeColor: _blurple,
+            inactiveColor: _card,
+            onTap: _toggleSpeaker,
           ),
           _buildControlButton(
             icon: Icons.videocam,
