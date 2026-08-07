@@ -59,7 +59,6 @@ class _StreamScreenState extends ConsumerState<StreamScreen> {
   int? _expandedUid;
 
   final Map<int, bool> _remoteUsers = {}; // uid -> hasCameraOn
-  int? _remoteScreenUid;
 
 
   // Use a stable hash of spaceId+deviceId so each device always gets
@@ -78,6 +77,7 @@ class _StreamScreenState extends ConsumerState<StreamScreen> {
       ? _stableUid(widget.spaceId, widget.partnerId)
       : (_myUid == 1 ? 2 : 1); // safe fallback
   int get _myScreenUid => _myUid + 100000;
+  int get _partnerScreenUid => _partnerUid + 100000;
 
   late final StreamRepository _repo;
   late StreamSubscription<List<RoomMember>> _membersSub;
@@ -179,9 +179,7 @@ class _StreamScreenState extends ConsumerState<StreamScreen> {
         onUserJoined: (RtcConnection connection, int remoteUid, int elapsed) {
           debugPrint("remote user $remoteUid joined");
           if (mounted) setState(() {
-            if (remoteUid > 100000) {
-              _remoteScreenUid = remoteUid;
-            } else {
+            if (remoteUid < 100000) {
               _remoteUsers[remoteUid] = false;
             }
           });
@@ -190,8 +188,7 @@ class _StreamScreenState extends ConsumerState<StreamScreen> {
           debugPrint("remote user $remoteUid left");
           if (mounted) setState(() {
             if (remoteUid > 100000) {
-              if (_remoteScreenUid == remoteUid) {
-                _remoteScreenUid = null;
+              if (remoteUid == _partnerScreenUid) {
                 _isScreenShareExpanded = false;
               }
             } else {
@@ -374,7 +371,7 @@ class _StreamScreenState extends ConsumerState<StreamScreen> {
                 _buildBottomControlBar(),
               ],
             ),
-            if (_isScreenShareExpanded && _remoteScreenUid != null) _buildFullscreenScreenShare(),
+            if (_isScreenShareExpanded) _buildFullscreenScreenShare(),
             if (_isCameraExpanded && _expandedUid != null) _buildFullscreenCamera(),
           ],
         ),
@@ -420,7 +417,7 @@ class _StreamScreenState extends ConsumerState<StreamScreen> {
   }
 
   Widget _buildMainArea() {
-    bool hasScreenShare = _members.any((m) => m.isScreenSharing) && _remoteScreenUid != null;
+    bool hasScreenShare = _members.any((m) => m.deviceId != widget.deviceId && m.isScreenSharing);
     
     return Column(
       children: [
@@ -698,7 +695,7 @@ class _StreamScreenState extends ConsumerState<StreamScreen> {
               child: AgoraVideoView(
                 controller: VideoViewController.remote(
                   rtcEngine: _engine!,
-                  canvas: VideoCanvas(uid: _remoteScreenUid!),
+                  canvas: VideoCanvas(uid: _partnerScreenUid),
                   connection: RtcConnection(channelId: widget.spaceId),
                 ),
               ),
