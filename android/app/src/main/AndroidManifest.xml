@@ -142,6 +142,12 @@
             </intent-filter>
         </service>
 
+        <!-- Agora screen sharing service (required for Android 10+) -->
+        <service
+            android:name="io.agora.rtc2.ScreenCaptureService"
+            android:foregroundServiceType="mediaProjection"
+            android:exported="false" />
+
         <receiver android:name="com.ryanheise.audioservice.MediaButtonReceiver"
             android:exported="true">
             <intent-filter>
